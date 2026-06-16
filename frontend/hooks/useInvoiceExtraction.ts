@@ -76,9 +76,6 @@ export function useInvoiceExtraction(
 
     try {
       const data = await extractRow(row.driveLink);
-      // #region agent log
-      fetch('http://127.0.0.1:7278/ingest/2c22404a-379e-4acd-837f-babf35680249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bc92db'},body:JSON.stringify({sessionId:'bc92db',location:'useInvoiceExtraction.ts:rerun',message:'extract-row response',data:{rawStatus:data.status,normalized:normalizeRowStatus(data.status),hasPayee:!!data.payee},timestamp:Date.now(),hypothesisId:'E',runId:'pre-fix'})}).catch(()=>{});
-      // #endregion
       const status = normalizeRowStatus(data.status);
       setRows((prev) =>
         prev.map((r) =>
