@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --font-ibm-plex-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-ibm-plex-mono: 'IBM Plex Mono', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-ibm-plex-sans);
+  background: #f6f8fb;
+  color: #18222e;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pop {
+  0% { transform: scale(0.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes barflow {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+@keyframes toastIn {
+  0% { transform: translateX(110%); opacity: 0; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+@keyframes fadeIn {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.spin { animation: spin .7s linear infinite; }
+.pop { animation: pop .25s ease both; }
+.toast-in { animation: toastIn .3s ease both; }
+.fade-in { animation: fadeIn .3s ease both; }
+
+.progress-bar {
+  background: linear-gradient(
+    90deg,
+    #3b78f0 0%,
+    #6ba3f8 30%,
+    #3b78f0 50%,
+    #6ba3f8 80%,
+    #3b78f0 100%
+  );
+  background-size: 200% auto;
+  animation: barflow 1.8s linear infinite;
+}
+
+input, select, button { font-family: inherit; }

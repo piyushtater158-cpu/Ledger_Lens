@@ -1,0 +1,36 @@
+# ─── Secrets — never commit ───────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.*.example
+.mcp.json
+
+# frontend-level env files (Next.js convention)
+frontend/.env.local
+frontend/.env.local.*
+!frontend/.env.local.example
+
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+
+# ─── Next.js build output ─────────────────────────────────────────────────────
+frontend/.next/
+frontend/out/
+
+# ─── OS cruft ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Editor ───────────────────────────────────────────────────────────────────
+# Keep .vscode/extensions.json (shared) but not personal settings
+.vscode/settings.json
+*.local
+
+# ─── gstack artifacts (local-only security reports, plans) ────────────────────
+.gstack/
+
+# --- Cursor / local artifacts -------------------------------------------------
+.cursor/
+exec76.json
+LedgerLens.dc.html

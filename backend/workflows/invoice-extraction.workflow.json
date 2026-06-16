@@ -1,0 +1,897 @@
+{
+  "id": "vqSkkv9egxmIVpdv",
+  "name": "Invoice Payee Extraction",
+  "active": false,
+  "description": "Receives an xlsx spreadsheet upload + Google access token, extracts payee/account/IFSC from Drive invoice files via OpenRouter nvidia/nemotron-nano-12b-v2-vl:free, returns a filled xlsx file.",
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "nodes": [
+    {
+      "id": "0e0d256d-5a81-443e-887c-93c5d1acd4be",
+      "name": "Receive File Upload",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        288
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "extract",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryData": true
+        }
+      },
+      "webhookId": "42b0bf85-d352-42eb-8626-0a72b6aea24a"
+    },
+    {
+      "id": "9c8436c4-ebef-43f4-8051-e018690275ca",
+      "name": "Normalize Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        288
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst bin = $binary?.data || $binary?.file || Object.values($binary || {})[0] || null;\nif (!bin) throw new Error('No file binary found. Send multipart/form-data with field \"data\".');\nconst token = $json.body?.googleAccessToken || $json.googleAccessToken || '';\nreturn { json: { ...$json, _uploadToken: token }, binary: { data: bin } };\n"
+      }
+    },
+    {
+      "id": "57ce552f-c809-42b5-bc06-c0f03997716f",
+      "name": "Parse Spreadsheet",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        288
+      ],
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "data",
+        "options": {
+          "headerRow": true,
+          "includeEmptyCells": true
+        }
+      }
+    },
+    {
+      "id": "ee70fc83-9225-4619-9309-c350baf1277e",
+      "name": "Detect Columns & Add Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        288
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst items = $input.all();\nif (!items.length) return [];\nconst token = $('Normalize Upload').first().json._uploadToken || '';\nconst keys = Object.keys(items[0].json);\nconst find = (re) => keys.find(k => re.test(k)) || '';\nconst dLinkKey = find(/drive.*link|invoice.*link|invoice.*url|link|url|drive|invoice|file/i);\nconst payeeKey = find(/payee|beneficiary|account[_\\s-]?name|acc[_\\s-]?name/i);\nconst acctKey  = find(/account[_\\s-]?no|acct|a\\/c|bank[_\\s-]?acc|acc.*no/i);\nconst ifscKey  = find(/ifsc/i);\nconst amountKey = find(/amount|total|value|sum|invoice.*amount/i);\nreturn items.map((item, idx) => ({\n  json: {\n    ...item.json,\n    _idx:          idx,\n    _token:        token,\n    _driveLink:    dLinkKey ? String(item.json[dLinkKey] || '').trim() : '',\n    _payee:        payeeKey ? String(item.json[payeeKey] || '').trim() : '',\n    _acct:         acctKey  ? String(item.json[acctKey]  || '').trim() : '',\n    _ifsc:         ifscKey  ? String(item.json[ifscKey]  || '').trim() : '',\n    _amount:       amountKey ? String(item.json[amountKey] || '').trim() : '',\n    _payeeKey:     payeeKey,\n    _acctKey:      acctKey,\n    _ifscKey:      ifscKey,\n    _amountKey:    amountKey,\n    _dLinkKey:     dLinkKey,\n    _originalKeys: keys,\n    _status:       '',\n  },\n}));\n"
+      }
+    },
+    {
+      "id": "860e31b9-c155-4eec-afbb-21717170bcfa",
+      "name": "Has Drive Link?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        288
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._driveLink }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "bee0ea9c-4a30-4582-8b55-0e151e399133",
+      "name": "Parse Drive File ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst link = $json._driveLink || '';\nconst m1 = link.match(/\\/d\\/([a-zA-Z0-9_-]+)/);\nconst m2 = link.match(/[?&]id=([a-zA-Z0-9_-]+)/);\nconst fileId = (m1 && m1[1]) || (m2 && m2[1]) || '';\nif (!fileId) return { json: { ...$json, _status: 'Error: could not parse Drive file ID', _fileId: '' } };\nreturn { json: { ...$json, _fileId: fileId } };\n"
+      }
+    },
+    {
+      "id": "13444218-0116-4528-b56b-6d77177b9ade",
+      "name": "Get Drive Metadata",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        192
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://www.googleapis.com/drive/v3/files/\" + $json._fileId + \"?fields=mimeType%2Cname\" }}",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $json._token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "40360c3b-9d4a-4b3a-9f6c-ca9c56d1b577",
+      "name": "Classify MimeType",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst meta = $json;\nconst row = $('Parse Drive File ID').item.json;\n\nif (row._status && row._status.startsWith('Error')) {\n  return { json: { ...row, _fileClass: 'error' } };\n}\n\nif (meta.error) {\n  const code = meta.error.code || 0;\n  const status =\n    code === 401\n      ? 'Error: Google session expired — sign out and sign in again'\n      : 'Error: Drive file not accessible (check permissions)';\n  return {\n    json: { ...row, _mimeType: '', _fileName: '', _fileClass: 'error', _status: status, _downloadUrl: '' },\n  };\n}\n\nconst mime = meta.mimeType || '';\nconst fileId = row._fileId || '';\nlet fileClass = 'document';\nlet status = '';\nlet exportAsPdf = false;\n\nif (mime.startsWith('image/')) {\n  fileClass = 'image';\n} else if (mime.startsWith('application/vnd.google-apps.')) {\n  fileClass = 'document';\n  exportAsPdf = true;\n} else if (!mime) {\n  fileClass = 'error';\n  status = 'Error: Drive file not accessible (check permissions)';\n} else {\n  // PDF and other binary formats — download directly. DOC/DOCX are downloaded then\n  // converted to PDF in Restore Row After Download before Gemini Analyze Document.\n  fileClass = 'document';\n}\n\nlet downloadUrl = '';\nif (fileId && fileClass !== 'error') {\n  downloadUrl = exportAsPdf\n    ? `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application%2Fpdf`\n    : `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;\n}\n\nreturn {\n  json: {\n    ...row,\n    _mimeType: mime,\n    _fileName: meta.name || '',\n    _fileClass: fileClass,\n    _status: status,\n    _downloadUrl: downloadUrl,\n  },\n};\n"
+      }
+    },
+    {
+      "id": "b271fd7f-1201-4dbd-9b4a-dc12db2dd51b",
+      "name": "Is Extractable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1792,
+        192
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._fileClass === \"document\" || $json._fileClass === \"image\" }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "c5105a98-4b33-4de4-a370-af03f481f96c",
+      "name": "Download Invoice File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2016,
+        96
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json._downloadUrl }}",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $json._token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "invoiceFile"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "id": "56bd48ff-4b13-4497-9110-62042e40277a",
+      "name": "Restore Row After Download",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        96
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst row = $('Classify MimeType').item.json;\nconst binData = $binary?.invoiceFile || null;\n\nif (!binData) {\n  return {\n    json: {\n      ...row,\n      _status: 'Error: file download failed (check Drive permissions)',\n      _downloadFailed: true,\n    },\n  };\n}\n\nconst OFFICE_DOC_MIMES = new Set([\n  'application/msword',\n  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',\n]);\n\nconst mime = row._mimeType || '';\nconst fileId = row._fileId || row.fileId || '';\nconst token = row._token || row.token || '';\n\nif (!OFFICE_DOC_MIMES.has(mime)) {\n  return { json: { ...row, _downloadFailed: false }, binary: { invoiceFile: binData } };\n}\n\nif (!fileId || !token) {\n  return {\n    json: {\n      ...row,\n      _status: 'Error: missing Drive file ID or token for DOC/DOCX conversion',\n      _downloadFailed: true,\n    },\n  };\n}\n\nlet copyId = '';\ntry {\n  const copy = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `https://www.googleapis.com/drive/v3/files/${fileId}/copy`,\n    headers: {\n      Authorization: `Bearer ${token}`,\n      'Content-Type': 'application/json',\n    },\n    body: {\n      mimeType: 'application/vnd.google-apps.document',\n      name: `__ledgerlens_convert_${fileId}`,\n    },\n    json: true,\n  });\n  copyId = copy.id;\n\n  const pdfBuffer = await this.helpers.httpRequest({\n    method: 'GET',\n    url: `https://www.googleapis.com/drive/v3/files/${copyId}/export?mimeType=application/pdf`,\n    headers: { Authorization: `Bearer ${token}` },\n    encoding: 'arraybuffer',\n  });\n\n  const pdfName = (row._fileName || 'invoice').replace(/\\.[^.]+$/i, '') + '.pdf';\n  const pdfBinary = await this.helpers.prepareBinaryData(pdfBuffer, pdfName, 'application/pdf');\n\n  return {\n    json: {\n      ...row,\n      _downloadFailed: false,\n      _geminiMimeType: 'application/pdf',\n      _convertedFromOffice: true,\n    },\n    binary: { invoiceFile: pdfBinary },\n  };\n} catch (e) {\n  const msg = String(e.message || e);\n  const needsReauth = /403|insufficient|permission|scope/i.test(msg);\n  return {\n    json: {\n      ...row,\n      _status: needsReauth\n        ? 'Error: DOC/DOCX conversion needs Drive access — sign out and sign in again'\n        : 'Error: could not convert DOC/DOCX to PDF — ' + msg,\n      _downloadFailed: true,\n    },\n  };\n} finally {\n  if (copyId && token) {\n    try {\n      await this.helpers.httpRequest({\n        method: 'DELETE',\n        url: `https://www.googleapis.com/drive/v3/files/${copyId}`,\n        headers: { Authorization: `Bearer ${token}` },\n      });\n    } catch (_) {\n      // Best-effort cleanup of temporary Google Doc copy\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "id": "6b120361-0941-4678-8d0f-33908684442a",
+      "name": "Is Image File?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2464,
+        96
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._fileClass }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "image"
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "cb0a129e-7fbd-4b62-9089-23a60c389993",
+      "name": "OpenRouter Analyze Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst OPENROUTER_MODEL = 'nvidia/nemotron-nano-12b-v2-vl:free';\n\nconst EXTRACTION_PROMPT = `You are reading an invoice document. Extract ONLY these four fields and return valid JSON with no prose, no markdown, no code fences:\n\n{\"payee\":\"string\",\"account_number\":\"string\",\"ifsc\":\"string\",\"amount\":\"string\",\"confidence\":0.0}\n\nRules:\n- payee: the account payee or beneficiary name exactly as printed\n- account_number: digits only, no spaces or dashes\n- ifsc: exactly 11 characters, uppercase (e.g. HDFC0001234)\n- amount: invoice total or grand total as printed (digits and decimal point only, no currency symbols or commas). Always include this field when visible on the invoice.\n- confidence: 0.0 to 1.0\n- If a field is missing or unreadable, use \"\" and lower confidence`;\n\nconst bin = $binary?.invoiceFile || null;\nif (!bin) {\n  return { json: { error: 'No invoice file binary found for OpenRouter analysis' } };\n}\n\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'invoiceFile');\nconst base64 = Buffer.from(buffer).toString('base64');\n\nlet mime = $('Restore Row After Download').item.json._geminiMimeType\n  || $('Restore Row After Download').item.json._mimeType\n  || bin.mimeType\n  || 'application/octet-stream';\n\nif (mime === 'application/octet-stream' && $('Restore Row After Download').item.json._fileClass === 'image') {\n  mime = 'image/jpeg';\n}\nif (mime !== 'application/pdf' && !mime.startsWith('image/')) {\n  if ($('Restore Row After Download').item.json._fileClass === 'document') {\n    mime = 'application/pdf';\n  }\n}\n\nconst dataUrl = `data:${mime};base64,${base64}`;\n\nfunction buildVisionContent(prompt) {\n  if (mime === 'application/pdf') {\n    return [\n      {\n        type: 'file',\n        file: {\n          filename: 'invoice.pdf',\n          file_data: dataUrl,\n        },\n      },\n      { type: 'text', text: prompt },\n    ];\n  }\n\n  return [\n    {\n      type: 'image_url',\n      image_url: { url: dataUrl },\n    },\n    { type: 'text', text: prompt },\n  ];\n}\n\nconst _openRouterBody = {\n  model: OPENROUTER_MODEL,\n  max_tokens: 1024,\n  messages: [\n    {\n      role: 'user',\n      content: buildVisionContent(EXTRACTION_PROMPT),\n    },\n  ],\n};\nreturn {\n  json: {\n    _openRouterBody,\n    _openRouterModel: OPENROUTER_MODEL,\n  },\n};\n"
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {}
+    },
+    {
+      "id": "638957da-66fd-4b44-bfe0-fe07ac87026d",
+      "name": "Parse Image Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst row = $('Restore Row After Download').item.json;\nif (row._downloadFailed) return { json: row };\n\nfunction formatError(err) {\n  if (err == null || err === '') return 'unknown error';\n  if (typeof err === 'string') return err;\n  return err.message || JSON.stringify(err);\n}\n\nfunction getPrepareError() {\n  for (const name of ['OpenRouter Analyze Image', 'OpenRouter Analyze Document']) {\n    try {\n      const prep = $(name).first()?.json;\n      if (prep?.error) return formatError(prep.error);\n    } catch (_) {}\n  }\n  return '';\n}\n\nconst prepareError = getPrepareError();\nif (prepareError) {\n  return { json: { ...row, _status: 'Error: extraction analyze failed - ' + prepareError } };\n}\n\nif ($json.error) {\n  return { json: { ...row, _status: 'Error: extraction analyze failed - ' + formatError($json.error) } };\n}\n\nfunction extractRawModelText(data) {\n  if (!data) return '';\n  if (typeof data.text === 'string') return data.text;\n  if (typeof data.output === 'string') return data.output;\n  if (typeof data.content === 'string') return data.content;\n  const openAiContent = data.choices?.[0]?.message?.content;\n  if (typeof openAiContent === 'string') return openAiContent;\n  const openAiText = data.choices?.[0]?.text;\n  if (typeof openAiText === 'string') return openAiText;\n  const messageContent = data.message?.content;\n  if (typeof messageContent === 'string') return messageContent;\n  const partText = data.content?.parts?.[0]?.text;\n  if (typeof partText === 'string') return partText;\n  return '';\n}\n\nfunction normalizeAmount(val) {\n  const s = String(val ?? '').trim();\n  if (!s) return '';\n  return s.replace(/[^\\d.]/g, '');\n}\n\nfunction parseExtractionPayload(data) {\n  if (\n    data.payee !== undefined ||\n    data.account_number !== undefined ||\n    data.ifsc !== undefined ||\n    data.amount !== undefined ||\n    data.total !== undefined\n  ) {\n    return data;\n  }\n  const raw = extractRawModelText(data);\n  if (!raw) return null;\n  const cleaned = raw.replace(/```json?\\n?/gi, '').replace(/```/g, '').trim();\n  return JSON.parse(cleaned);\n}\n\ntry {\n  const p = parseExtractionPayload($json);\n  if (!p) {\n    return { json: { ...row, _status: 'Error: model returned empty extraction' } };\n  }\n\n  if (p.error) {\n    return { json: { ...row, _status: 'Error: extraction analyze failed - ' + p.error } };\n  }\n\n  const payee = String(p.payee || '').trim();\n  const acct = String(p.account_number || p.bank_number || p.bank_account_number || '')\n    .replace(/\\D/g, '');\n  const ifsc = String(p.ifsc || '').toUpperCase().trim();\n  const amount = normalizeAmount(\n    p.amount ?? p.total ?? p.total_amount ?? p.invoice_amount ?? p.invoice_total\n  );\n  const confidence = typeof p.confidence === 'number' ? p.confidence : 0;\n\n  const _parseSource = extractRawModelText($json) ? 'model-text' : 'top-level';\n\n  if (!payee && !acct && !ifsc && !amount) {\n    return {\n      json: {\n        ...row,\n        _status: 'Error: model returned empty extraction',\n        _confidence: confidence,\n        _parseSource,\n      },\n    };\n  }\n\n  return {\n    json: {\n      ...row,\n      _extractedPayee: payee,\n      _extractedAcct: acct,\n      _extractedIfsc: ifsc,\n      _extractedAmount: amount,\n      _confidence: confidence,\n      _status: 'Done',\n      _parseSource,\n    },\n  };\n} catch (e) {\n  return { json: { ...row, _status: 'Error: model response not parseable - ' + e.message } };\n}\n"
+      }
+    },
+    {
+      "id": "63be73f7-13c5-4b85-bb70-cb53db65a0bd",
+      "name": "Merge Extraction Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3136,
+        96
+      ],
+      "parameters": {
+        "mode": "append"
+      }
+    },
+    {
+      "id": "2d270d98-cd87-4e33-8e14-28dde044cab1",
+      "name": "OpenRouter Analyze Document",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst OPENROUTER_MODEL = 'nvidia/nemotron-nano-12b-v2-vl:free';\n\nconst EXTRACTION_PROMPT = `You are reading an invoice document. Extract ONLY these four fields and return valid JSON with no prose, no markdown, no code fences:\n\n{\"payee\":\"string\",\"account_number\":\"string\",\"ifsc\":\"string\",\"amount\":\"string\",\"confidence\":0.0}\n\nRules:\n- payee: the account payee or beneficiary name exactly as printed\n- account_number: digits only, no spaces or dashes\n- ifsc: exactly 11 characters, uppercase (e.g. HDFC0001234)\n- amount: invoice total or grand total as printed (digits and decimal point only, no currency symbols or commas). Always include this field when visible on the invoice.\n- confidence: 0.0 to 1.0\n- If a field is missing or unreadable, use \"\" and lower confidence`;\n\nconst bin = $binary?.invoiceFile || null;\nif (!bin) {\n  return { json: { error: 'No invoice file binary found for OpenRouter analysis' } };\n}\n\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'invoiceFile');\nconst base64 = Buffer.from(buffer).toString('base64');\n\nlet mime = $('Restore Row After Download').item.json._geminiMimeType\n  || $('Restore Row After Download').item.json._mimeType\n  || bin.mimeType\n  || 'application/octet-stream';\n\nif (mime === 'application/octet-stream' && $('Restore Row After Download').item.json._fileClass === 'image') {\n  mime = 'image/jpeg';\n}\nif (mime !== 'application/pdf' && !mime.startsWith('image/')) {\n  if ($('Restore Row After Download').item.json._fileClass === 'document') {\n    mime = 'application/pdf';\n  }\n}\n\nconst dataUrl = `data:${mime};base64,${base64}`;\n\nfunction buildVisionContent(prompt) {\n  if (mime === 'application/pdf') {\n    return [\n      {\n        type: 'file',\n        file: {\n          filename: 'invoice.pdf',\n          file_data: dataUrl,\n        },\n      },\n      { type: 'text', text: prompt },\n    ];\n  }\n\n  return [\n    {\n      type: 'image_url',\n      image_url: { url: dataUrl },\n    },\n    { type: 'text', text: prompt },\n  ];\n}\n\nconst _openRouterBody = {\n  model: OPENROUTER_MODEL,\n  max_tokens: 1024,\n  messages: [\n    {\n      role: 'user',\n      content: buildVisionContent(EXTRACTION_PROMPT),\n    },\n  ],\n};\nreturn {\n  json: {\n    _openRouterBody,\n    _openRouterModel: OPENROUTER_MODEL,\n  },\n};\n"
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {}
+    },
+    {
+      "id": "acbea578-fe05-4161-a063-ab1c1bf67330",
+      "name": "Parse Document Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        192
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst row = $('Restore Row After Download').item.json;\nif (row._downloadFailed) return { json: row };\n\nfunction formatError(err) {\n  if (err == null || err === '') return 'unknown error';\n  if (typeof err === 'string') return err;\n  return err.message || JSON.stringify(err);\n}\n\nfunction getPrepareError() {\n  for (const name of ['OpenRouter Analyze Image', 'OpenRouter Analyze Document']) {\n    try {\n      const prep = $(name).first()?.json;\n      if (prep?.error) return formatError(prep.error);\n    } catch (_) {}\n  }\n  return '';\n}\n\nconst prepareError = getPrepareError();\nif (prepareError) {\n  return { json: { ...row, _status: 'Error: extraction analyze failed - ' + prepareError } };\n}\n\nif ($json.error) {\n  return { json: { ...row, _status: 'Error: extraction analyze failed - ' + formatError($json.error) } };\n}\n\nfunction extractRawModelText(data) {\n  if (!data) return '';\n  if (typeof data.text === 'string') return data.text;\n  if (typeof data.output === 'string') return data.output;\n  if (typeof data.content === 'string') return data.content;\n  const openAiContent = data.choices?.[0]?.message?.content;\n  if (typeof openAiContent === 'string') return openAiContent;\n  const openAiText = data.choices?.[0]?.text;\n  if (typeof openAiText === 'string') return openAiText;\n  const messageContent = data.message?.content;\n  if (typeof messageContent === 'string') return messageContent;\n  const partText = data.content?.parts?.[0]?.text;\n  if (typeof partText === 'string') return partText;\n  return '';\n}\n\nfunction normalizeAmount(val) {\n  const s = String(val ?? '').trim();\n  if (!s) return '';\n  return s.replace(/[^\\d.]/g, '');\n}\n\nfunction parseExtractionPayload(data) {\n  if (\n    data.payee !== undefined ||\n    data.account_number !== undefined ||\n    data.ifsc !== undefined ||\n    data.amount !== undefined ||\n    data.total !== undefined\n  ) {\n    return data;\n  }\n  const raw = extractRawModelText(data);\n  if (!raw) return null;\n  const cleaned = raw.replace(/```json?\\n?/gi, '').replace(/```/g, '').trim();\n  return JSON.parse(cleaned);\n}\n\ntry {\n  const p = parseExtractionPayload($json);\n  if (!p) {\n    return { json: { ...row, _status: 'Error: model returned empty extraction' } };\n  }\n\n  if (p.error) {\n    return { json: { ...row, _status: 'Error: extraction analyze failed - ' + p.error } };\n  }\n\n  const payee = String(p.payee || '').trim();\n  const acct = String(p.account_number || p.bank_number || p.bank_account_number || '')\n    .replace(/\\D/g, '');\n  const ifsc = String(p.ifsc || '').toUpperCase().trim();\n  const amount = normalizeAmount(\n    p.amount ?? p.total ?? p.total_amount ?? p.invoice_amount ?? p.invoice_total\n  );\n  const confidence = typeof p.confidence === 'number' ? p.confidence : 0;\n\n  const _parseSource = extractRawModelText($json) ? 'model-text' : 'top-level';\n\n  if (!payee && !acct && !ifsc && !amount) {\n    return {\n      json: {\n        ...row,\n        _status: 'Error: model returned empty extraction',\n        _confidence: confidence,\n        _parseSource,\n      },\n    };\n  }\n\n  return {\n    json: {\n      ...row,\n      _extractedPayee: payee,\n      _extractedAcct: acct,\n      _extractedIfsc: ifsc,\n      _extractedAmount: amount,\n      _confidence: confidence,\n      _status: 'Done',\n      _parseSource,\n    },\n  };\n} catch (e) {\n  return { json: { ...row, _status: 'Error: model response not parseable - ' + e.message } };\n}\n"
+      }
+    },
+    {
+      "id": "8bf53565-d44e-4cb7-b531-7d3a01266180",
+      "name": "Pass Non-Downloadable",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3136,
+        368
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": []
+        }
+      }
+    },
+    {
+      "id": "5c99dce7-1700-4bc0-bdf8-8b714176afaf",
+      "name": "Merge After Download Check",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3360,
+        192
+      ],
+      "parameters": {
+        "mode": "append"
+      }
+    },
+    {
+      "id": "3fc8f580-e748-45a7-911f-ff1063eb85be",
+      "name": "Mark No Drive Link",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3360,
+        528
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "_status",
+              "value": "No Drive Link",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c98dbd8e-10b2-4b70-8a43-47e74085d874",
+      "name": "Merge All Rows",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3584,
+        288
+      ],
+      "parameters": {
+        "mode": "append"
+      }
+    },
+    {
+      "id": "2e938014-e223-48f9-ba52-c768553e6b89",
+      "name": "Rebuild Final Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        288
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst r = $json;\nconst keys = r._originalKeys || [];\nconst out = {};\nfor (const k of keys) out[k] = r[k] !== undefined ? r[k] : '';\nif (r._payeeKey && r._extractedPayee) out[r._payeeKey] = r._extractedPayee;\nif (r._acctKey && r._extractedAcct) out[r._acctKey] = r._extractedAcct;\nif (r._ifscKey && r._extractedIfsc) out[r._ifscKey] = r._extractedIfsc;\nif (r._amountKey && r._extractedAmount) out[r._amountKey] = r._extractedAmount;\nout['Status']     = r._status || '';\nout['Confidence'] = r._confidence !== undefined && r._confidence !== '' ? Number(r._confidence).toFixed(2) : '';\nout['__sortIdx']  = r._idx;\nreturn { json: out };\n"
+      }
+    },
+    {
+      "id": "468f8f5c-9901-42d0-95b5-98c2e2ef68ec",
+      "name": "Sort Rows By Index",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        288
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nreturn $input.all()\n  .sort((a, b) => (a.json.__sortIdx || 0) - (b.json.__sortIdx || 0))\n  .map(item => { const { __sortIdx, ...rest } = item.json; return { json: rest }; });\n"
+      }
+    },
+    {
+      "id": "7b5ada7e-9dc5-4b28-be3e-cacf418c6642",
+      "name": "Convert to XLSX",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        4256,
+        288
+      ],
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "outputFile",
+        "options": {
+          "fileName": "invoices_filled.xlsx",
+          "headerRow": true,
+          "sheetName": "Sheet1"
+        }
+      }
+    },
+    {
+      "id": "dde93441-8fe9-488e-aed4-de65866f6700",
+      "name": "Return Filled File",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        4480,
+        288
+      ],
+      "parameters": {
+        "respondWith": "binary",
+        "responseDataSource": "set",
+        "inputFieldName": "outputFile",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Disposition",
+                "value": "attachment; filename=\"invoices_filled.xlsx\""
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-openrouter-http-image-0001",
+      "name": "OpenRouter HTTP Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2800,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "https://ledgerlens.app"
+            },
+            {
+              "name": "X-Title",
+              "value": "LedgerLens Invoice Extraction"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json._openRouterBody ? JSON.stringify($json._openRouterBody) : JSON.stringify({ error: $json.error || \"Missing OpenRouter request body\" }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "openRouterApi": {
+          "id": "bDCaYQ5pU52IShxl",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-openrouter-http-doc-0001",
+      "name": "OpenRouter HTTP Document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2800,
+        192
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer",
+              "value": "https://ledgerlens.app"
+            },
+            {
+              "name": "X-Title",
+              "value": "LedgerLens Invoice Extraction"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json._openRouterBody ? JSON.stringify($json._openRouterBody) : JSON.stringify({ error: $json.error || \"Missing OpenRouter request body\" }) }}",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "openRouterApi": {
+          "id": "bDCaYQ5pU52IShxl",
+          "name": "OpenRouter account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive File Upload": {
+      "main": [
+        [
+          {
+            "node": "Normalize Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Upload": {
+      "main": [
+        [
+          {
+            "node": "Parse Spreadsheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Spreadsheet": {
+      "main": [
+        [
+          {
+            "node": "Detect Columns & Add Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Columns & Add Token": {
+      "main": [
+        [
+          {
+            "node": "Has Drive Link?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Drive Link?": {
+      "main": [
+        [
+          {
+            "node": "Parse Drive File ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark No Drive Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Drive File ID": {
+      "main": [
+        [
+          {
+            "node": "Get Drive Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Drive Metadata": {
+      "main": [
+        [
+          {
+            "node": "Classify MimeType",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify MimeType": {
+      "main": [
+        [
+          {
+            "node": "Is Extractable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Extractable?": {
+      "main": [
+        [
+          {
+            "node": "Download Invoice File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pass Non-Downloadable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Invoice File": {
+      "main": [
+        [
+          {
+            "node": "Restore Row After Download",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Row After Download": {
+      "main": [
+        [
+          {
+            "node": "Is Image File?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Image File?": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter Analyze Image",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OpenRouter Analyze Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Image Extraction": {
+      "main": [
+        [
+          {
+            "node": "Merge Extraction Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Document Extraction": {
+      "main": [
+        [
+          {
+            "node": "Merge Extraction Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Pass Non-Downloadable": {
+      "main": [
+        [
+          {
+            "node": "Merge After Download Check",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge After Download Check": {
+      "main": [
+        [
+          {
+            "node": "Merge All Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark No Drive Link": {
+      "main": [
+        [
+          {
+            "node": "Merge All Rows",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge All Rows": {
+      "main": [
+        [
+          {
+            "node": "Rebuild Final Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rebuild Final Row": {
+      "main": [
+        [
+          {
+            "node": "Sort Rows By Index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort Rows By Index": {
+      "main": [
+        [
+          {
+            "node": "Convert to XLSX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to XLSX": {
+      "main": [
+        [
+          {
+            "node": "Return Filled File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Analyze Image": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter HTTP Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Analyze Document": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter HTTP Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Extraction Results": {
+      "main": [
+        [
+          {
+            "node": "Merge After Download Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter HTTP Image": {
+      "main": [
+        [
+          {
+            "node": "Parse Image Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter HTTP Document": {
+      "main": [
+        [
+          {
+            "node": "Parse Document Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

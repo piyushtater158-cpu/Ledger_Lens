@@ -1,0 +1,50 @@
+# .gitleaks.toml — secret scanning rules for LedgerLens
+# Install: https://github.com/gitleaks/gitleaks
+# Run: gitleaks detect --source . --verbose
+# or:  gitleaks protect --staged   (pre-commit hook)
+
+title = "LedgerLens gitleaks config"
+
+[extend]
+# Use the official gitleaks default ruleset as the base
+useDefault = true
+
+[[rules]]
+id          = "n8n-jwt-api-key"
+description = "n8n API or MCP JWT (iss:n8n)"
+# n8n JWTs decode to {"iss":"n8n"} — the base64 of that prefix is eyJzdWIi / eyJhbGci
+regex       = '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'''
+secretGroup = 0
+entropy     = 3.5
+keywords    = ["eyJhbGci"]
+
+[[rules]]
+id          = "nextauth-secret"
+description = "NextAuth / NextJS session secret (NEXTAUTH_SECRET=...)"
+regex       = '''(?i)NEXTAUTH_SECRET\s*=\s*[A-Za-z0-9+/=]{20,}'''
+secretGroup = 0
+keywords    = ["NEXTAUTH_SECRET"]
+
+[[rules]]
+id          = "generic-admin-token"
+description = "N8N_ADMIN_TOKEN or similar admin token variable"
+regex       = '''(?i)(N8N_ADMIN_TOKEN|ADMIN_TOKEN|API_TOKEN)\s*=\s*[^\s'"]{8,}'''
+secretGroup = 0
+keywords    = ["N8N_ADMIN_TOKEN", "ADMIN_TOKEN"]
+
+[allowlist]
+description = "Ignore example/template files and test fixtures"
+paths       = [
+  ".env.example",
+  ".env.*.example",
+  "frontend/.env.local.example",
+  ".gitleaks.toml",
+]
+# Placeholder values used in example files
+regexes     = [
+  '''REPLACE_WITH_''',
+  '''your[-_].*here''',
+  '''changeme''',
+  '''your-.*-here''',
+  '''generate-with-''',
+]
