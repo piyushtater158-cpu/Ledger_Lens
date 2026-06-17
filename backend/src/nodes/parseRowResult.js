@@ -2,17 +2,32 @@
  * Nodes: "Parse Image Result" + "Parse Document Result"
  * Workflow: B (Invoice Extract Row — LmdFhorOYBoJgXGl)
  * Mode: runOnceForEachItem
+ *
+ * Depends on extractionHelpers.js (prepended by sync script).
  */
 
 const row = $('Restore Row After Download').item.json;
+
+function buildResult({ payee = '', accountNumber = '', ifsc = '', amount = '', currency = '', confidence = 0, status }) {
+  return { json: { payee, accountNumber, ifsc, amount, currency, confidence, status } };
+}
+
 if (row._downloadFailed) {
-  return { json: { payee: '', accountNumber: '', ifsc: '', amount: '', confidence: 0, status: row._status } };
+  return buildResult({ status: row._status || 'Error: download failed' });
 }
 
 function formatError(err) {
   if (err == null || err === '') return 'unknown error';
   if (typeof err === 'string') return err;
   return err.message || JSON.stringify(err);
+}
+
+function formatOpenRouterHttpError(err) {
+  const msg = formatError(err);
+  if (/too many requests|429|rate limit/i.test(msg)) {
+    return 'OpenRouter rate limit (429) — wait and retry, or switch off the free-tier model';
+  }
+  return msg;
 }
 
 function getPrepareError() {
@@ -27,155 +42,65 @@ function getPrepareError() {
 
 const prepareError = getPrepareError();
 if (prepareError) {
-  return {
-    json: {
-      payee: '',
-      accountNumber: '',
-      ifsc: '',
-      amount: '',
-      confidence: 0,
-      status: 'Error: extraction analyze failed - ' + prepareError,
-    },
-  };
+  return buildResult({ status: 'Error: extraction analyze failed - ' + prepareError });
 }
 
 if ($json.error) {
-  return {
-    json: {
-      payee: '',
-      accountNumber: '',
-      ifsc: '',
-      amount: '',
-      confidence: 0,
-      status: 'Error: extraction analyze failed - ' + formatError($json.error),
-    },
-  };
-}
-
-function extractRawModelText(data) {
-  if (!data) return '';
-  if (typeof data.text === 'string') return data.text;
-  if (typeof data.output === 'string') return data.output;
-  if (typeof data.content === 'string') return data.content;
-  const openAiContent = data.choices?.[0]?.message?.content;
-  if (typeof openAiContent === 'string') return openAiContent;
-  const openAiText = data.choices?.[0]?.text;
-  if (typeof openAiText === 'string') return openAiText;
-  const messageContent = data.message?.content;
-  if (typeof messageContent === 'string') return messageContent;
-  const partText = data.content?.parts?.[0]?.text;
-  if (typeof partText === 'string') return partText;
-  return '';
-}
-
-function normalizeAmount(val) {
-  const s = String(val ?? '').trim();
-  if (!s) return '';
-  return s.replace(/[^\d.]/g, '');
-}
-
-const PROMPT_LEAKED_IFSC = 'HDFC0001234';
-const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
-
-function detectHallucination(payee, acct, ifsc, confidence) {
-  if (ifsc === PROMPT_LEAKED_IFSC) return 'model returned prompt example IFSC';
-  if (/^123456789012$/.test(acct)) return 'placeholder account number';
-  if (acct.length >= 10 && /^(\d)\1+$/.test(acct)) return 'repeated-digit account number';
-  if (ifsc && !IFSC_REGEX.test(ifsc)) return 'invalid IFSC format';
-  if (confidence < 0.5 && payee && acct) return 'low confidence with filled fields';
-  return '';
-}
-
-function parseExtractionPayload(data) {
-  if (
-    data.payee !== undefined ||
-    data.account_number !== undefined ||
-    data.ifsc !== undefined ||
-    data.amount !== undefined ||
-    data.total !== undefined
-  ) {
-    return data;
-  }
-  const raw = extractRawModelText(data);
-  if (!raw) return null;
-  const cleaned = raw.replace(/```json?\n?/gi, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned);
+  return buildResult({ status: 'Error: extraction failed - ' + formatOpenRouterHttpError($json.error) });
 }
 
 try {
   const p = parseExtractionPayload($json);
   if (!p) {
-    return {
-      json: {
-        payee: '',
-        accountNumber: '',
-        ifsc: '',
-        amount: '',
-        confidence: 0,
-        status: 'Error: model returned empty extraction',
-      },
-    };
+    return buildResult({ status: 'Error: model returned empty extraction' });
   }
 
   if (p.error) {
-    return {
-      json: {
-        payee: '',
-        accountNumber: '',
-        ifsc: '',
-        amount: '',
-        confidence: 0,
-        status: 'Error: extraction analyze failed - ' + p.error,
-      },
-    };
+    return buildResult({ status: 'Error: extraction analyze failed - ' + p.error });
   }
 
-  const payee = String(p.payee || '').trim();
-  const accountNumber = String(p.account_number || p.bank_number || p.bank_account_number || '')
-    .replace(/\D/g, '');
-  const ifsc = String(p.ifsc || '').toUpperCase().trim();
-  const amount = normalizeAmount(
-    p.amount ?? p.total ?? p.total_amount ?? p.invoice_amount ?? p.invoice_total
-  );
-  const confidence = typeof p.confidence === 'number' ? p.confidence : 0;
+  const { payee, acct, ifsc, amount, currency, confidence } = finalizeExtraction(p);
+  const accountNumber = acct;
 
-  const hallucinationReason = detectHallucination(payee, accountNumber, ifsc, confidence);
+  // #region agent log
+  if (typeof fetch === 'function') {
+    fetch('http://127.0.0.1:7278/ingest/2c22404a-379e-4acd-837f-babf35680249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'440105'},body:JSON.stringify({sessionId:'440105',runId:'currency-extract',hypothesisId:'H1',location:'parseRowResult.js:post-parse',message:'Parsed extraction with currency',data:{amount,currency,hasPayee:!!payee,hasAcct:!!accountNumber,hasIfsc:!!ifsc},timestamp:Date.now()})}).catch(()=>{});
+  }
+  // #endregion
+
+  const hallucinationReason = detectHallucination(payee, accountNumber, ifsc);
   if (hallucinationReason) {
-    return {
-      json: {
-        payee: '',
-        accountNumber: '',
-        ifsc: '',
-        amount: '',
-        confidence,
-        status: 'Error: model returned unreliable extraction - ' + hallucinationReason,
-      },
-    };
+    return buildResult({
+      payee,
+      accountNumber,
+      ifsc,
+      amount,
+      currency,
+      confidence,
+      status: 'Error: model returned unreliable extraction - ' + hallucinationReason,
+    });
   }
 
   if (!payee && !accountNumber && !ifsc && !amount) {
-    return {
-      json: {
-        payee: '',
-        accountNumber: '',
-        ifsc: '',
-        amount: '',
-        confidence,
-        status: 'Error: model returned empty extraction',
-      },
-    };
+    return buildResult({ confidence, status: 'Error: model returned empty extraction' });
   }
 
-  return { json: { payee, accountNumber, ifsc, amount, confidence, status: 'Done' } };
+  const hasBankDetails = Boolean(accountNumber && ifsc) || Boolean(payee && (accountNumber || ifsc));
+  const amountOnly = amount && !payee && !accountNumber && !ifsc;
+
+  if (amountOnly || !hasBankDetails) {
+    return buildResult({
+      payee,
+      accountNumber,
+      ifsc,
+      amount,
+      currency,
+      confidence,
+      status: 'not_invoice: no bank payment details found',
+    });
+  }
+
+  return buildResult({ payee, accountNumber, ifsc, amount, currency, confidence, status: 'Done' });
 } catch (e) {
-  return {
-    json: {
-      payee: '',
-      accountNumber: '',
-      ifsc: '',
-      amount: '',
-      confidence: 0,
-      status: 'Error: model response not parseable - ' + e.message,
-    },
-  };
+  return buildResult({ status: 'Error: model response not parseable - ' + e.message });
 }

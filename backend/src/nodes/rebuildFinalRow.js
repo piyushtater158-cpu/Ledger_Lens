@@ -17,6 +17,7 @@ if (r._payeeKey && r._extractedPayee) out[r._payeeKey] = r._extractedPayee;
 if (r._acctKey && r._extractedAcct) out[r._acctKey] = r._extractedAcct;
 if (r._ifscKey && r._extractedIfsc) out[r._ifscKey] = r._extractedIfsc;
 if (r._amountKey && r._extractedAmount) out[r._amountKey] = r._extractedAmount;
+if (r._currencyKey && r._extractedCurrency) out[r._currencyKey] = r._extractedCurrency;
 out['Status']     = r._status || '';
 out['Confidence'] = r._confidence !== undefined && r._confidence !== '' ? Number(r._confidence).toFixed(2) : '';
 out['__sortIdx']  = r._idx;

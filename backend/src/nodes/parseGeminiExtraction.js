@@ -2,15 +2,42 @@
  * Nodes: "Parse Image Extraction" + "Parse Document Extraction"
  * Workflow: A (Invoice Payee Extraction — vqSkkv9egxmIVpdv)
  * Mode: runOnceForEachItem
+ *
+ * Depends on extractionHelpers.js (prepended by sync script).
  */
 
 const row = $('Restore Row After Download').item.json;
-if (row._downloadFailed) return { json: row };
+
+function buildRowOutput(row, { payee = '', acct = '', ifsc = '', amount = '', currency = '', confidence = 0, status, _parseSource = '' }) {
+  return {
+    json: {
+      ...row,
+      _extractedPayee: payee,
+      _extractedAcct: acct,
+      _extractedIfsc: ifsc,
+      _extractedAmount: amount,
+      _extractedCurrency: currency,
+      _confidence: confidence,
+      _status: status,
+      ...(_parseSource ? { _parseSource } : {}),
+    },
+  };
+}
+
+if (row._downloadFailed) return buildRowOutput(row, { status: row._status || 'Error: download failed' });
 
 function formatError(err) {
   if (err == null || err === '') return 'unknown error';
   if (typeof err === 'string') return err;
   return err.message || JSON.stringify(err);
+}
+
+function formatOpenRouterHttpError(err) {
+  const msg = formatError(err);
+  if (/too many requests|429|rate limit/i.test(msg)) {
+    return 'OpenRouter rate limit (429) — wait and retry, or switch off the free-tier model';
+  }
+  return msg;
 }
 
 function getPrepareError() {
@@ -25,120 +52,55 @@ function getPrepareError() {
 
 const prepareError = getPrepareError();
 if (prepareError) {
-  return { json: { ...row, _status: 'Error: extraction analyze failed - ' + prepareError } };
+  return buildRowOutput(row, { status: 'Error: extraction analyze failed - ' + prepareError });
 }
 
 if ($json.error) {
-  return { json: { ...row, _status: 'Error: extraction analyze failed - ' + formatError($json.error) } };
-}
-
-function extractRawModelText(data) {
-  if (!data) return '';
-  if (typeof data.text === 'string') return data.text;
-  if (typeof data.output === 'string') return data.output;
-  if (typeof data.content === 'string') return data.content;
-  const openAiContent = data.choices?.[0]?.message?.content;
-  if (typeof openAiContent === 'string') return openAiContent;
-  const openAiText = data.choices?.[0]?.text;
-  if (typeof openAiText === 'string') return openAiText;
-  const messageContent = data.message?.content;
-  if (typeof messageContent === 'string') return messageContent;
-  const partText = data.content?.parts?.[0]?.text;
-  if (typeof partText === 'string') return partText;
-  return '';
-}
-
-function normalizeAmount(val) {
-  const s = String(val ?? '').trim();
-  if (!s) return '';
-  return s.replace(/[^\d.]/g, '');
-}
-
-const PROMPT_LEAKED_IFSC = 'HDFC0001234';
-const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
-
-function detectHallucination(payee, acct, ifsc, confidence) {
-  if (ifsc === PROMPT_LEAKED_IFSC) return 'model returned prompt example IFSC';
-  if (/^123456789012$/.test(acct)) return 'placeholder account number';
-  if (acct.length >= 10 && /^(\d)\1+$/.test(acct)) return 'repeated-digit account number';
-  if (ifsc && !IFSC_REGEX.test(ifsc)) return 'invalid IFSC format';
-  if (confidence < 0.5 && payee && acct) return 'low confidence with filled fields';
-  return '';
-}
-
-function parseExtractionPayload(data) {
-  if (
-    data.payee !== undefined ||
-    data.account_number !== undefined ||
-    data.ifsc !== undefined ||
-    data.amount !== undefined ||
-    data.total !== undefined
-  ) {
-    return data;
-  }
-  const raw = extractRawModelText(data);
-  if (!raw) return null;
-  const cleaned = raw.replace(/```json?\n?/gi, '').replace(/```/g, '').trim();
-  return JSON.parse(cleaned);
+  const httpErr = formatOpenRouterHttpError($json.error);
+  return buildRowOutput(row, { status: 'Error: extraction failed - ' + httpErr });
 }
 
 try {
   const p = parseExtractionPayload($json);
   if (!p) {
-    return { json: { ...row, _status: 'Error: model returned empty extraction' } };
+    return buildRowOutput(row, { status: 'Error: model returned empty extraction', _parseSource: 'empty' });
   }
 
   if (p.error) {
-    return { json: { ...row, _status: 'Error: extraction analyze failed - ' + p.error } };
+    return buildRowOutput(row, { status: 'Error: extraction analyze failed - ' + p.error, _parseSource: 'error-field' });
   }
 
-  const payee = String(p.payee || '').trim();
-  const acct = String(p.account_number || p.bank_number || p.bank_account_number || '')
-    .replace(/\D/g, '');
-  const ifsc = String(p.ifsc || '').toUpperCase().trim();
-  const amount = normalizeAmount(
-    p.amount ?? p.total ?? p.total_amount ?? p.invoice_amount ?? p.invoice_total
-  );
-  const confidence = typeof p.confidence === 'number' ? p.confidence : 0;
-
+  const { payee, acct, ifsc, amount, currency, confidence } = finalizeExtraction(p);
   const _parseSource = extractRawModelText($json) ? 'model-text' : 'top-level';
 
-  const hallucinationReason = detectHallucination(payee, acct, ifsc, confidence);
-
+  const hallucinationReason = detectHallucination(payee, acct, ifsc);
   if (hallucinationReason) {
-    return {
-      json: {
-        ...row,
-        _status: 'Error: model returned unreliable extraction - ' + hallucinationReason,
-        _confidence: confidence,
-        _parseSource,
-      },
-    };
+    return buildRowOutput(row, {
+      payee,
+      acct,
+      ifsc,
+      amount,
+      currency,
+      confidence,
+      status: 'Error: model returned unreliable extraction - ' + hallucinationReason,
+      _parseSource,
+    });
   }
 
   if (!payee && !acct && !ifsc && !amount) {
-    return {
-      json: {
-        ...row,
-        _status: 'Error: model returned empty extraction',
-        _confidence: confidence,
-        _parseSource,
-      },
-    };
+    return buildRowOutput(row, { confidence, status: 'Error: model returned empty extraction', _parseSource });
   }
 
-  return {
-    json: {
-      ...row,
-      _extractedPayee: payee,
-      _extractedAcct: acct,
-      _extractedIfsc: ifsc,
-      _extractedAmount: amount,
-      _confidence: confidence,
-      _status: 'Done',
-      _parseSource,
-    },
-  };
+  return buildRowOutput(row, {
+    payee,
+    acct,
+    ifsc,
+    amount,
+    currency,
+    confidence,
+    status: 'Done',
+    _parseSource,
+  });
 } catch (e) {
-  return { json: { ...row, _status: 'Error: model response not parseable - ' + e.message } };
+  return buildRowOutput(row, { status: 'Error: model response not parseable - ' + e.message, _parseSource: 'parse-error' });
 }

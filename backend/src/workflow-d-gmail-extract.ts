@@ -2,7 +2,7 @@
  * Workflow D — Gmail Attachment Extract
  * Webhook: POST /webhook/gmail-extract
  * Input: { googleAccessToken, messageId, attachmentId, mimeType, filename }
- * Output: { payee, accountNumber, ifsc, amount, confidence, status }
+ * Output: { payee, accountNumber, ifsc, amount, currency, confidence, status }
  */
 
 import { workflow, trigger, node, ifElse, merge, expr } from '@n8n/workflow-sdk';
@@ -252,7 +252,7 @@ const respondUnsupported = node({
     name: 'Respond Unsupported',
     parameters: {
       respondWith: 'json',
-      responseBody: expr(`{{ JSON.stringify({ payee: "", accountNumber: "", ifsc: "", amount: "", confidence: 0, status: $json._status || "unsupported" }) }}`),
+      responseBody: expr(`{{ JSON.stringify({ payee: "", accountNumber: "", ifsc: "", amount: "", currency: "", confidence: 0, status: $json._status || "unsupported" }) }}`),
       options: { responseCode: 200, responseHeaders: { entries: [{ name: 'Access-Control-Allow-Origin', value: '*' }] } },
     },
   },

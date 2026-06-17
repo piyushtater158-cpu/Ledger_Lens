@@ -18,8 +18,8 @@
 
 import { workflow, trigger, node, ifElse, merge, expr } from '@n8n/workflow-sdk';
 
-/** OpenRouter model — nvidia/nemotron-nano-12b-v2-vl:free (vision-language) */
-const OPENROUTER_MODEL_ID = 'nvidia/nemotron-nano-12b-v2-vl:free';
+/** OpenRouter model — google/gemini-2.5-flash (multimodal vision + document) */
+const OPENROUTER_MODEL_ID = 'google/gemini-2.5-flash';
 
 // ── Trigger ──────────────────────────────────────────────────────────────────
 const receiveUpload = trigger({
@@ -241,10 +241,6 @@ const openRouterImage = node({
   version: 2,
   config: {
     name: 'OpenRouter Analyze Image',
-    onError: 'continueRegularOutput',
-    retryOnFail: true,
-    maxTries: 3,
-    waitBetweenTries: 3000,
     parameters: {
       mode: 'runOnceForEachItem',
       jsCode: OPENROUTER_ANALYZE_JS,
@@ -257,10 +253,6 @@ const openRouterDoc = node({
   version: 2,
   config: {
     name: 'OpenRouter Analyze Document',
-    onError: 'continueRegularOutput',
-    retryOnFail: true,
-    maxTries: 3,
-    waitBetweenTries: 3000,
     parameters: {
       mode: 'runOnceForEachItem',
       jsCode: OPENROUTER_ANALYZE_JS,

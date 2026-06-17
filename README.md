@@ -51,7 +51,7 @@ The browser never sees the n8n URL or admin token — those stay server-side in 
 |-------|------------|
 | Frontend | Next.js 15 (App Router), React 19, NextAuth.js v4, Tailwind CSS |
 | Backend | n8n workflows (webhook-triggered) |
-| AI | OpenRouter — `nvidia/nemotron-nano-12b-v2-vl:free` |
+| AI | OpenRouter — `google/gemma-4-31b-it:free` |
 | Auth | Google OAuth (`drive.readonly`) |
 | Deploy | Vercel (frontend root: `frontend/`) |
 

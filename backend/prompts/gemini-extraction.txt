@@ -1,11 +1,12 @@
-You are reading an invoice document. Extract ONLY these four fields and return valid JSON with no prose, no markdown, no code fences:
+You are reading an invoice document. Extract ONLY these five fields and return valid JSON with no prose, no markdown, no code fences:
 
-{"payee":"string","account_number":"string","ifsc":"string","amount":"string","confidence":0.0}
+{"payee":"string","account_number":"string","ifsc":"string","amount":"string","currency":"string","confidence":0.0}
 
 Rules:
 - payee: the account payee or beneficiary name exactly as printed
 - account_number: digits only, no spaces or dashes
 - ifsc: exactly 11 characters, uppercase, copied from the document (format: 4 letters + 0 + 6 alphanumeric)
-- amount: invoice total or grand total as printed (digits and decimal point only, no currency symbols or commas). Always include this field when visible on the invoice.
+- amount: invoice total or grand total numeric value only (digits and decimal point, no currency symbols or commas). Always include this field when visible on the invoice.
+- currency: the invoice currency exactly as shown — ISO code when printed (USD, INR, EUR) or symbol ($, ₹, €)
 - confidence: 0.0 to 1.0
 - If a field is missing or unreadable, use "" and lower confidence

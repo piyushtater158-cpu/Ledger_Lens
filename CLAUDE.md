@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project: LedgerLens
 
-Invoice payee extractor — user uploads an `.xlsx` with Google Drive invoice links, OpenRouter `nvidia/nemotron-nano-12b-v2-vl:free` extracts payee name / bank account / IFSC for each row, and the filled spreadsheet is returned for download.
+Invoice payee extractor — user uploads an `.xlsx` with Google Drive invoice links, OpenRouter `google/gemma-4-31b-it:free` extracts payee name / bank account / IFSC for each row, and the filled spreadsheet is returned for download.
 
 **Stack:** n8n workflows (backend) · Next.js 15 App Router + NextAuth.js (frontend) · OpenRouter (Nemotron VL) · Vercel (deploy) · Google Drive API (user bearer token, never stored in n8n)
 
@@ -73,7 +73,7 @@ The browser never sees the n8n URL or Admin Token — those stay server-side.
 
 ## Key gotchas
 
-- **OpenRouter model** must be `nvidia/nemotron-nano-12b-v2-vl:free` (configured in `backend/src/nodes/prepareOpenRouterPayload.js`)
+- **OpenRouter model** must be `google/gemma-4-31b-it:free` (configured in `backend/src/nodes/prepareOpenRouterPayload.js`; reasoning disabled via `reasoning: { effort: 'none' }`)
 - **Model may wrap JSON in code fences** — always strip before parsing: `raw.replace(/```json?\n?/g, '').replace(/```/g, '').trim()`
 - **Drive HTTP Request nodes** use `continueRegularOutput` on error so the workflow doesn't halt on a bad link; the Code node downstream checks for the failure and sets `_status = Error: ...`
 - **Binary data loss across nodes:** after an HTTP Request that downloads a file, the next Code node must read `$('previous-node').item.json` to restore `_` prefixed metadata (binary context is lost when Code node runs)

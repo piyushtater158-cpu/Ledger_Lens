@@ -2,6 +2,7 @@
  * Sync node .js sources into workflow JSON and deploy to live n8n.
  * Usage: node backend/scripts/sync-and-deploy-workflows.mjs
  *        node backend/scripts/sync-and-deploy-workflows.mjs --local-only
+ *        node backend/scripts/sync-and-deploy-workflows.mjs --gmail-extract-only
  */
 import { readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -12,7 +13,7 @@ const root = join(__dirname, '..');
 const workflowsDir = join(root, 'workflows');
 const nodesDir = join(root, 'src', 'nodes');
 
-const OPENROUTER_MODEL = 'nvidia/nemotron-nano-12b-v2-vl:free';
+const OPENROUTER_MODEL = 'google/gemini-2.5-flash';
 const EXTRACTABLE_CONDITION =
   '={{ $json._fileClass === "document" || $json._fileClass === "image" }}';
 const OPENROUTER_CREDENTIAL_TYPE = 'openRouterApi';
@@ -71,6 +72,12 @@ function readNode(name) {
   return toN8nJs(readFileSync(join(nodesDir, name), 'utf8'));
 }
 
+function readParseNode(name) {
+  const helpers = stripNodeComments(readFileSync(join(nodesDir, 'extractionHelpers.js'), 'utf8'));
+  const body = stripNodeComments(readFileSync(join(nodesDir, name), 'utf8'));
+  return toN8nJs(helpers + '\n\n' + body);
+}
+
 function renameConnectionKey(connections, oldName, newName) {
   if (!connections[oldName]) return;
   connections[newName] = connections[oldName];
@@ -84,6 +91,26 @@ function renameConnectionKey(connections, oldName, newName) {
   }
 }
 
+const OPENROUTER_HTTP_RESILIENCE = {
+  onError: 'continueRegularOutput',
+  retryOnFail: true,
+  maxTries: 5,
+  waitBetweenTries: 15000,
+};
+
+function stripOpenRouterRetrySettings(node) {
+  if (!OPENROUTER_NODE_NAMES.has(node.name)) return;
+  delete node.onError;
+  delete node.retryOnFail;
+  delete node.maxTries;
+  delete node.waitBetweenTries;
+}
+
+function applyOpenRouterHttpResilience(node) {
+  if (!OPENROUTER_HTTP_NODE_NAMES.has(node.name)) return;
+  Object.assign(node, OPENROUTER_HTTP_RESILIENCE);
+}
+
 function migrateAnalyzeNode(node, openRouterJs) {
   if (!ANALYZE_NODE_NAMES.has(node.name)) return;
 
@@ -91,10 +118,7 @@ function migrateAnalyzeNode(node, openRouterJs) {
   node.name = newName;
   node.type = 'n8n-nodes-base.code';
   node.typeVersion = 2;
-  node.onError = 'continueRegularOutput';
-  node.retryOnFail = true;
-  node.maxTries = 3;
-  node.waitBetweenTries = 3000;
+  stripOpenRouterRetrySettings(node);
   node.parameters = {
     mode: 'runOnceForEachItem',
     jsCode: openRouterJs,
@@ -132,11 +156,8 @@ function createOpenRouterHttpNode(name, analyzeNode, openRouterCredential) {
       jsonBody: '={{ $json._openRouterBody ? JSON.stringify($json._openRouterBody) : JSON.stringify({ error: $json.error || "Missing OpenRouter request body" }) }}',
       options: { timeout: 120000 },
     },
-    onError: 'continueRegularOutput',
-    retryOnFail: true,
-    maxTries: 3,
-    waitBetweenTries: 3000,
     credentials: openRouterCredential || DEFAULT_OPENROUTER_CREDENTIAL,
+    ...OPENROUTER_HTTP_RESILIENCE,
   };
 }
 
@@ -148,6 +169,7 @@ function ensureOpenRouterHttpNodes(nodes, openRouterCredential) {
     if (existing) {
       Object.assign(existing, httpNode, { id: existing.id || httpNode.id });
       if (openRouterCredential) existing.credentials = openRouterCredential;
+      applyOpenRouterHttpResilience(existing);
     } else {
       nodes.push(httpNode);
     }
@@ -191,6 +213,7 @@ function migrateConnections(connections) {
 function patchWorkflow(wf, opts) {
   const {
     classifyJs,
+    classifyGmailJs,
     parseJs,
     detectColumnsJs,
     rebuildFinalRowJs,
@@ -215,6 +238,9 @@ function patchWorkflow(wf, opts) {
     if (node.name === 'Classify MimeType') {
       node.parameters.jsCode = classifyJs;
     }
+    if (node.name === 'Classify Invoice Attachment' && classifyGmailJs) {
+      node.parameters.jsCode = classifyGmailJs;
+    }
     if (node.name === 'Restore Row After Download' && restoreRowJs) {
       node.parameters.jsCode = restoreRowJs;
     }
@@ -231,6 +257,10 @@ function patchWorkflow(wf, opts) {
     if (OPENROUTER_NODE_NAMES.has(node.name) && openRouterJs) {
       node.parameters.jsCode = openRouterJs;
       delete node.credentials?.openRouterApi;
+      stripOpenRouterRetrySettings(node);
+    }
+    if (OPENROUTER_HTTP_NODE_NAMES.has(node.name)) {
+      applyOpenRouterHttpResilience(node);
     }
     if (
       node.name === 'Parse Image Extraction' ||
@@ -239,6 +269,10 @@ function patchWorkflow(wf, opts) {
       node.name === 'Parse Document Result'
     ) {
       node.parameters.jsCode = parseJs;
+    }
+    if (node.name === 'Respond Unsupported' && node.type === 'n8n-nodes-base.respondToWebhook') {
+      node.parameters.responseBody =
+        '={{ JSON.stringify({ payee: "", accountNumber: "", ifsc: "", amount: "", currency: "", confidence: 0, status: $json._status || "unsupported" }) }}';
     }
   }
 
@@ -251,6 +285,7 @@ function patchWorkflow(wf, opts) {
   if (wf.description) {
     wf.description = wf.description
       .replace(/Gemini 2\.5 Flash/gi, `OpenRouter ${OPENROUTER_MODEL}`)
+      .replace(/OpenRouter\s+[\w/.:-]+/gi, `OpenRouter ${OPENROUTER_MODEL}`)
       .replace(/via Gemini/gi, 'via OpenRouter');
   }
 
@@ -398,11 +433,12 @@ function mergePatchesOntoLive(live, patched, openRouterCredential) {
       node.type = patch.type;
       node.typeVersion = patch.typeVersion;
       node.parameters = patch.parameters;
-      node.onError = patch.onError;
-      node.retryOnFail = patch.retryOnFail;
-      node.maxTries = patch.maxTries;
-      node.waitBetweenTries = patch.waitBetweenTries;
+      stripOpenRouterRetrySettings(node);
       delete node.credentials?.googlePalmApi;
+    }
+
+    if (OPENROUTER_HTTP_NODE_NAMES.has(node.name)) {
+      applyOpenRouterHttpResilience(node);
     }
 
     if (patch.name === 'Merge Extraction Results' && node.name === 'Merge Gemini Results') {
@@ -454,6 +490,9 @@ async function deployWorkflow(env, patched, openRouterCredential) {
     connections: merged.connections,
     settings: merged.settings || { executionOrder: 'v1' },
   };
+  if (patched.description) {
+    payload.description = patched.description;
+  }
 
   const res = await fetch(`${base}/api/v1/workflows/${id}`, {
     method: 'PUT',
@@ -487,6 +526,7 @@ function assertNoSecrets(wf) {
 
 async function main() {
   const onlyB = process.argv.includes('--workflow-b-only');
+  const onlyGmailExtract = process.argv.includes('--gmail-extract-only');
   const localOnly = process.argv.includes('--local-only');
   const env = localOnly ? {} : loadEnv();
   if (!localOnly && (!env.N8N_API_KEY || !env.N8N_BASE_URL)) {
@@ -495,8 +535,9 @@ async function main() {
 
   const classifyA = readNode('classifyMimeType.js');
   const classifyB = readNode('classifyMimeType-workflow-b.js');
-  const parseA = readNode('parseGeminiExtraction.js');
-  const parseB = readNode('parseRowResult.js');
+  const classifyGmail = readNode('classifyInvoiceAttachment.js');
+  const parseA = readParseNode('parseGeminiExtraction.js');
+  const parseB = readParseNode('parseRowResult.js');
   const detectColumnsJs = readNode('detectColumns.js');
   const rebuildFinalRowJs = readNode('rebuildFinalRow.js');
   const restoreRowJs = readNode('restoreRowAfterDownload.js');
@@ -504,6 +545,7 @@ async function main() {
 
   const workflowAPath = join(workflowsDir, 'invoice-extraction.workflow.json');
   const workflowBPath = join(workflowsDir, 'invoice-extract-row.workflow.json');
+  const workflowDPath = join(workflowsDir, 'gmail-extract.workflow.json');
 
   const wfA = patchWorkflow(JSON.parse(readFileSync(workflowAPath, 'utf8')), {
     classifyJs: classifyA,
@@ -519,12 +561,19 @@ async function main() {
     restoreRowJs,
     openRouterJs,
   });
+  const wfD = patchWorkflow(JSON.parse(readFileSync(workflowDPath, 'utf8')), {
+    classifyGmailJs: classifyGmail,
+    parseJs: parseB,
+    openRouterJs,
+  });
 
   assertNoSecrets(wfA);
   assertNoSecrets(wfB);
+  assertNoSecrets(wfD);
 
   writeFileSync(workflowAPath, JSON.stringify(wfA, null, 2) + '\n');
   writeFileSync(workflowBPath, JSON.stringify(wfB, null, 2) + '\n');
+  writeFileSync(workflowDPath, JSON.stringify(wfD, null, 2) + '\n');
   console.log('Updated local workflow JSON files');
 
   if (localOnly) {
@@ -534,15 +583,22 @@ async function main() {
 
   const liveA = await fetchWorkflow(env, wfA.id);
   const liveB = await fetchWorkflow(env, wfB.id);
+  const liveD = onlyGmailExtract ? await fetchWorkflow(env, wfD.id) : null;
   const openRouterCredential = await resolveOpenRouterCredential(env, [
     ...liveA.nodes,
     ...liveB.nodes,
+    ...(liveD?.nodes || []),
   ]);
 
   if (!openRouterCredential) {
     console.warn(
       'Warning: No OpenRouter openRouterApi credential found. Assign OpenRouter credential to analyze nodes in n8n UI, or set OPENROUTER_CREDENTIAL_ID in .env',
     );
+  }
+
+  if (onlyGmailExtract) {
+    await deployWorkflow(env, wfD, openRouterCredential);
+    return;
   }
 
   if (onlyB) {

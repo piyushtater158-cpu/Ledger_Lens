@@ -19,6 +19,7 @@ const payeeKey = find(/payee|beneficiary|account[_\s-]?name|acc[_\s-]?name/i);
 const acctKey  = find(/account[_\s-]?no|acct|a\/c|bank[_\s-]?acc|acc.*no/i);
 const ifscKey  = find(/ifsc/i);
 const amountKey = find(/amount|total|value|sum|invoice.*amount/i);
+const currencyKey = find(/currency|curr|ccy/i);
 return items.map((item, idx) => ({
   json: {
     ...item.json,
@@ -29,10 +30,12 @@ return items.map((item, idx) => ({
     _acct:         acctKey  ? String(item.json[acctKey]  || '').trim() : '',
     _ifsc:         ifscKey  ? String(item.json[ifscKey]  || '').trim() : '',
     _amount:       amountKey ? String(item.json[amountKey] || '').trim() : '',
+    _currency:     currencyKey ? String(item.json[currencyKey] || '').trim() : '',
     _payeeKey:     payeeKey,
     _acctKey:      acctKey,
     _ifscKey:      ifscKey,
     _amountKey:    amountKey,
+    _currencyKey:  currencyKey,
     _dLinkKey:     dLinkKey,
     _originalKeys: keys,
     _status:       '',

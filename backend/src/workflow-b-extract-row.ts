@@ -18,7 +18,7 @@
 
 import { workflow, trigger, node, ifElse, merge, expr } from '@n8n/workflow-sdk';
 
-const OPENROUTER_MODEL_ID = 'nvidia/nemotron-nano-12b-v2-vl:free';
+const OPENROUTER_MODEL_ID = 'google/gemini-2.5-flash';
 
 // ── Trigger ──────────────────────────────────────────────────────────────────
 const receiveRowRerun = trigger({
@@ -174,10 +174,6 @@ const openRouterImage = node({
   version: 2,
   config: {
     name: 'OpenRouter Analyze Image',
-    onError: 'continueRegularOutput',
-    retryOnFail: true,
-    maxTries: 3,
-    waitBetweenTries: 3000,
     parameters: {
       mode: 'runOnceForEachItem',
       jsCode: OPENROUTER_ANALYZE_JS,
@@ -190,10 +186,6 @@ const openRouterDoc = node({
   version: 2,
   config: {
     name: 'OpenRouter Analyze Document',
-    onError: 'continueRegularOutput',
-    retryOnFail: true,
-    maxTries: 3,
-    waitBetweenTries: 3000,
     parameters: {
       mode: 'runOnceForEachItem',
       jsCode: OPENROUTER_ANALYZE_JS,
@@ -226,7 +218,7 @@ const respondUnsupported = node({
     name: 'Respond Unsupported',
     parameters: {
       respondWith: 'json',
-      responseBody: expr(`{{ JSON.stringify({ payee: "", accountNumber: "", ifsc: "", amount: "", confidence: 0, status: $json._status }) }}`),
+      responseBody: expr(`{{ JSON.stringify({ payee: "", accountNumber: "", ifsc: "", amount: "", currency: "", confidence: 0, status: $json._status }) }}`),
       options: { responseCode: 200, responseHeaders: { entries: [{ name: 'Access-Control-Allow-Origin', value: '*' }] } },
     },
   },
