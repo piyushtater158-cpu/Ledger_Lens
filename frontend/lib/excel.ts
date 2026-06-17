@@ -1,4 +1,5 @@
 import type { ColumnMapping, ExtractionResult, InvoiceRow, RowStatus } from './types';
+import { formatAmountWithCurrency } from './formatAmount';
 
 export function autoDetectColumns(headers: string[]): Partial<ColumnMapping> {
   const find = (re: RegExp) => headers.find((h) => re.test(h)) ?? '';
@@ -8,6 +9,7 @@ export function autoDetectColumns(headers: string[]): Partial<ColumnMapping> {
     acct: find(/account[_\s-]?no|acct|a\/c|bank[_\s-]?acc|acc.*no/i),
     ifsc: find(/ifsc/i),
     amount: find(/amount|total|value|sum|invoice.*amount/i),
+    currency: find(/currency|curr|ccy/i),
   };
 }
 
@@ -37,11 +39,15 @@ export async function parseN8nResultBlob(
 
     const conf = parseFloat(String(row['Confidence'] ?? '0'));
 
+    const currencyCol = mapping.currency || 'Currency';
+    const currency = String(row[currencyCol] ?? row['Currency'] ?? '');
+
     return {
       payee: String(row[mapping.payee] ?? ''),
       acct: String(row[mapping.acct] ?? ''),
       ifsc: String(row[mapping.ifsc] ?? ''),
       amount: mapping.amount ? String(row[mapping.amount] ?? '') : '',
+      currency,
       status,
       error,
       confidence: isNaN(conf) ? undefined : conf,
@@ -64,7 +70,10 @@ export async function buildDownloadBlob(
       if (mapping.payee) result[mapping.payee] = row.payee;
       if (mapping.acct) result[mapping.acct] = row.acct;
       if (mapping.ifsc) result[mapping.ifsc] = row.ifsc;
-      if (mapping.amount) result[mapping.amount] = row.amount;
+      if (mapping.amount) {
+        result[mapping.amount] = formatAmountWithCurrency(row.currency, row.amount);
+      }
+      result['Currency'] = row.currency ?? '';
       result['Status'] = row.status;
       if (row.confidence != null) result['Confidence'] = row.confidence;
     }
@@ -72,7 +81,10 @@ export async function buildDownloadBlob(
   });
 
   const wb = XLSX.utils.book_new();
-  const allHeaders = [...headers, 'Status', 'Confidence'];
+  const allHeaders = [...headers];
+  if (!allHeaders.includes('Currency')) allHeaders.push('Currency');
+  if (!allHeaders.includes('Status')) allHeaders.push('Status');
+  if (!allHeaders.includes('Confidence')) allHeaders.push('Confidence');
   const ws = XLSX.utils.json_to_sheet(output, { header: allHeaders });
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
@@ -91,11 +103,12 @@ export async function buildGmailDownloadBlob(rows: InvoiceRow[]): Promise<Blob> 
     'Payee': r.payee,
     'Account No': r.acct,
     'IFSC': r.ifsc,
-    'Amount': r.amount,
+    'Currency': r.currency ?? '',
+    'Amount': formatAmountWithCurrency(r.currency, r.amount),
     'Status': r.status,
     'Confidence': r.confidence !== undefined ? Number(r.confidence).toFixed(2) : '',
   }));
-  const headers = ['Sender', 'Email Date', 'Subject', 'Attachment', 'Payee', 'Account No', 'IFSC', 'Amount', 'Status', 'Confidence'];
+  const headers = ['Sender', 'Email Date', 'Subject', 'Attachment', 'Payee', 'Account No', 'IFSC', 'Currency', 'Amount', 'Status', 'Confidence'];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(sheetRows, { header: headers });
   XLSX.utils.book_append_sheet(wb, ws, 'Gmail Invoices');

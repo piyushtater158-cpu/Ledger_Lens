@@ -15,6 +15,7 @@ export interface ColumnMapping {
   acct: string;
   ifsc: string;
   amount: string;
+  currency?: string;
 }
 
 export interface InvoiceRow {
@@ -26,6 +27,7 @@ export interface InvoiceRow {
   acct: string;
   ifsc: string;
   amount: string;
+  currency: string;
   status: RowStatus;
   error?: string;
   errorType?: 'auth' | 'drive' | 'gemini' | 'other';
@@ -62,6 +64,7 @@ export interface ExtractionResult {
   acct: string;
   ifsc: string;
   amount?: string;
+  currency?: string;
   status: RowStatus;
   error?: string;
   confidence?: number;

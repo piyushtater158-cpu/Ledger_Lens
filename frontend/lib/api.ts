@@ -29,6 +29,7 @@ export interface ExtractRowResult {
   accountNumber: string; // NOTE: maps to InvoiceRow.acct — see shared/contracts.ts
   ifsc: string;
   amount: string;
+  currency: string;
   confidence: number;
   status: string;
 }

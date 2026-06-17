@@ -37,6 +37,7 @@ export function useFileUpload(toast: (text: string, kind?: Toast['kind']) => voi
       acct: mapping.acct ? String(raw[mapping.acct] ?? '') : '',
       ifsc: mapping.ifsc ? String(raw[mapping.ifsc] ?? '') : '',
       amount: mapping.amount ? String(raw[mapping.amount] ?? '') : '',
+      currency: '',
       status: 'pending',
       source: 'sheet',
     }));

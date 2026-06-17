@@ -30,6 +30,7 @@ export interface ExtractRowResponse {
   accountNumber: string;
   ifsc: string;
   amount: string;
+  currency: string;
   confidence: number;
   status: string; // 'Done' | 'Error: ...' | 'Unsupported - manual (...)'
 }

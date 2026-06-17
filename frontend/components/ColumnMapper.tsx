@@ -50,8 +50,8 @@ export default function ColumnMapper({ headers, mapping, onChange, previewRows }
         overflow: 'hidden',
       }}>
         {FIELDS.map((f, i) => {
-          const val = mapping[f.key];
-          const detected = headers.includes(val);
+          const val = mapping[f.key] ?? '';
+          const detected = val ? headers.includes(val) : false;
           return (
             <div
               key={f.key}

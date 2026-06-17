@@ -1,4 +1,5 @@
 import { C } from '@/lib/colors';
+import { formatAmountWithCurrency } from '@/lib/formatAmount';
 import type { InvoiceRow } from '@/lib/types';
 import StatusBadge from '@/components/StatusBadge';
 import FileCell from './FileCell';
@@ -78,7 +79,7 @@ export default function InvoiceTableRow({ row, index, isGmailMode, editing, edit
 
       <td style={{ ...cellStyle, textAlign: 'right' }}>
         <span style={{ font: '500 12.5px "IBM Plex Mono"', color: row.amount ? C.inkSoft : C.faint }}>
-          {row.amount || '—'}
+          {formatAmountWithCurrency(row.currency, row.amount) || '—'}
         </span>
       </td>
       <td style={cellStyle}>
