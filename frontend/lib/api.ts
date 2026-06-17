@@ -45,3 +45,60 @@ export async function extractRow(driveLink: string): Promise<ExtractRowResult> {
   }
   return res.json();
 }
+
+export interface GmailDiscoverParams {
+  query?: string;
+  after: number;
+  before: number;
+  maxMessages?: number;
+}
+
+export interface GmailInvoice {
+  id: string;
+  messageId: string;
+  attachmentId: string;
+  mimeType: string;
+  filename: string;
+  sender: string;
+  subject: string;
+  emailDate: string;
+}
+
+export interface DiscoverResponse {
+  invoices: GmailInvoice[];
+  truncated: boolean;
+  scanned: number;
+}
+
+export async function discoverGmail(params: GmailDiscoverParams): Promise<DiscoverResponse> {
+  const res = await fetch('/api/gmail-discover', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({ error: 'Failed' }));
+    throw makeFetchError(errBody.error ?? res.statusText, res.status, errBody);
+  }
+  return res.json();
+}
+
+export interface ExtractGmailAttachmentParams {
+  messageId: string;
+  attachmentId: string;
+  mimeType: string;
+  filename: string;
+}
+
+export async function extractGmailAttachment(params: ExtractGmailAttachmentParams): Promise<ExtractRowResult> {
+  const res = await fetch('/api/gmail-extract', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({ error: 'Failed' }));
+    throw makeFetchError(errBody.error ?? res.statusText, res.status, errBody);
+  }
+  return res.json();
+}

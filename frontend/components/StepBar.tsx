@@ -1,11 +1,11 @@
 import { C } from '@/lib/colors';
+import type { Screen } from '@/lib/types';
 
 const STEPS = ['Upload', 'Map columns', 'Extract'];
 
-type Screen = 'upload' | 'mapping' | 'dashboard';
-
 const SCREEN_INDEX: Record<Screen, number> = {
   upload: 0,
+  gmail: 0,
   mapping: 1,
   dashboard: 2,
 };

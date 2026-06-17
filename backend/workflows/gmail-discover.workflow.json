@@ -1,0 +1,234 @@
+{
+  "id": "DKeKAKn620xgkpQZ",
+  "name": "Gmail Invoice Discovery",
+  "active": false,
+  "description": "V2 additive workflow. Discovers invoice-like Gmail attachments and returns metadata only.",
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "nodes": [
+    {
+      "id": "gmail-discover-webhook",
+      "name": "Receive Gmail Discover",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gmail-discover",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REIlq9U7MYnIUAey",
+          "name": "Admin Token"
+        }
+      }
+    },
+    {
+      "id": "parse-discover-body",
+      "name": "Parse Discover Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst body = $json.body || $json;\nconst token = body.googleAccessToken || '';\nconst query = String(body.query || '').trim();\nconst after = Number(body.after);\nconst before = Number(body.before);\nconst requestedMax = Number(body.maxMessages);\nconst maxMessages = Number.isFinite(requestedMax) && requestedMax > 0\n  ? Math.min(Math.floor(requestedMax), 500)\n  : 200;\n\nif (!token) throw new Error('googleAccessToken is required');\nif (!Number.isFinite(after)) throw new Error('after is required (unix epoch seconds)');\nif (!Number.isFinite(before)) throw new Error('before is required (unix epoch seconds)');\n\nconst baseQuery = `has:attachment after:${Math.floor(after)} before:${Math.floor(before)}`;\nconst q = query ? `${baseQuery} ${query}` : baseQuery;\n\nreturn { json: { token, q, maxMessages } };\n"
+      }
+    },
+    {
+      "id": "search-gmail-messages",
+      "name": "Search Gmail Messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://gmail.googleapis.com/gmail/v1/users/me/messages?q=\" + encodeURIComponent($json.q) + \"&maxResults=\" + ($json.maxMessages || 200) }}",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $json.token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "expand-message-ids",
+      "name": "Expand Message IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst seed = $('Parse Discover Body').first().json;\nconst first = $input.first()?.json || {};\nconst messages = Array.isArray(first.messages) ? first.messages : [];\nif (!messages.length) return [{ json: { token: seed.token, maxMessages: seed.maxMessages, _empty: true } }];\nreturn messages.slice(0, seed.maxMessages || 200).map((m) => ({\n  json: { token: seed.token, maxMessages: seed.maxMessages, messageId: m.id, threadId: m.threadId || '' },\n}));\n"
+      }
+    },
+    {
+      "id": "fetch-message-metadata",
+      "name": "Fetch Message Metadata",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        940,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ \"https://gmail.googleapis.com/gmail/v1/users/me/messages/\" + $json.messageId + \"?format=full\" }}",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ \"Bearer \" + $json.token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "parse-attachments",
+      "name": "Parse Attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1180,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction toIsoDate(headerDate) {\n  if (!headerDate) return '';\n  const parsed = new Date(headerDate);\n  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();\n}\n\nfunction headerValue(headers, name) {\n  const match = (headers || []).find((h) => String(h.name || '').toLowerCase() === name.toLowerCase());\n  return String(match?.value || '').trim();\n}\n\nfunction collectParts(part, out) {\n  if (!part) return;\n  const filename = String(part.filename || '').trim();\n  const mimeType = String(part.mimeType || '').trim();\n  const attachmentId = String(part.body?.attachmentId || '').trim();\n\n  if (\n    filename &&\n    attachmentId &&\n    (mimeType === 'application/pdf' || mimeType.startsWith('image/'))\n  ) {\n    out.push({ filename, mimeType, attachmentId });\n  }\n\n  for (const child of part.parts || []) {\n    collectParts(child, out);\n  }\n}\n\nconst DECORATIVE_IMAGE =\n  /(?:^|[-_])(?:logo|hero|banner|icon|avatar|footer|header|spacer|pixel|signature|badge|thumbnail|emoji|social|instagram|linkedin|twitter|facebook|youtube|yt|fb|white)(?:[-_.]|$)/i;\nconst INVOICE_HINT =\n  /(?:invoice|inv[-_]?\\d|bill|receipt|tax|gst|payment|proforma|debit[\\s_-]?note|credit[\\s_-]?note)/i;\n\nfunction isDecorativeAttachment(filename) {\n  return DECORATIVE_IMAGE.test(filename.toLowerCase());\n}\n\nfunction isInvoiceCandidate(filename, subject, mimeType) {\n  const context = `${filename} ${subject}`.toLowerCase();\n  if (isDecorativeAttachment(filename)) return false;\n  if (mimeType === 'application/pdf') return true;\n  if (mimeType.startsWith('image/') && INVOICE_HINT.test(context)) return true;\n  return false;\n}\n\nfunction attachmentPriority(filename, mimeType) {\n  const name = filename.toLowerCase();\n  if (mimeType === 'application/pdf' && /invoice/i.test(name)) return 0;\n  if (mimeType === 'application/pdf' && /bill/i.test(name)) return 1;\n  if (mimeType === 'application/pdf') return 2;\n  if (INVOICE_HINT.test(name)) return 3;\n  return 9;\n}\n\nfunction pickBestPerMessage(candidates) {\n  if (candidates.length <= 1) return candidates;\n  const pdfs = candidates.filter((c) => c.mimeType === 'application/pdf');\n  if (pdfs.length > 1) {\n    pdfs.sort((a, b) => attachmentPriority(a.filename, a.mimeType) - attachmentPriority(b.filename, b.mimeType));\n    const invoicePdf = pdfs.find((p) => /invoice/i.test(p.filename.toLowerCase()));\n    if (invoicePdf) return [invoicePdf];\n    return [pdfs[0]];\n  }\n  return candidates;\n}\n\nconst searchResult = $('Search Gmail Messages').first()?.json || {};\nif (searchResult.error) {\n  const err = searchResult.error;\n  const code = err.code || err.status || 500;\n  const details = Array.isArray(err.details) ? err.details : [];\n  const scopeInsufficient =\n    code === 403 ||\n    details.some((d) => d.reason === 'ACCESS_TOKEN_SCOPE_INSUFFICIENT');\n  const message = scopeInsufficient\n    ? 'Gmail permission denied — sign out and sign in again to grant Gmail read access'\n    : String(err.message || 'Gmail API error');\n  return [{ json: { error: message, errorCode: code, invoices: [], truncated: false, scanned: 0 } }];\n}\n\nconst input = $input.all();\nif (!input.length) {\n  return [{ json: { invoices: [], truncated: false, scanned: 0 } }];\n}\n\nconst parserSeed = $('Parse Discover Body').first().json || {};\nconst seen = new Set();\nconst invoices = [];\nlet scanned = 0;\n\nfor (const item of input) {\n  const message = item.json || {};\n  if (message.error || !message.id) continue;\n\n  scanned += 1;\n  const headers = message.payload?.headers || [];\n  const sender = headerValue(headers, 'From');\n  const subject = headerValue(headers, 'Subject');\n  const emailDate = toIsoDate(headerValue(headers, 'Date'));\n\n  const parts = [];\n  collectParts(message.payload, parts);\n\n  const candidates = parts.filter((part) =>\n    isInvoiceCandidate(part.filename, subject, part.mimeType)\n  );\n  const selected = pickBestPerMessage(candidates);\n\n  for (const part of selected) {\n    const key = `${message.id}:${part.attachmentId}`;\n    if (seen.has(key)) continue;\n    seen.add(key);\n    invoices.push({\n      id: key,\n      messageId: message.id,\n      attachmentId: part.attachmentId,\n      mimeType: part.mimeType,\n      filename: part.filename,\n      sender,\n      subject,\n      emailDate,\n    });\n  }\n}\n\nconst maxMessages = parserSeed.maxMessages || 200;\nconst truncated = invoices.length >= maxMessages;\nconst cappedInvoices = truncated ? invoices.slice(0, maxMessages) : invoices;\n\nreturn [{ json: { invoices: cappedInvoices, truncated, scanned } }];\n"
+      }
+    },
+    {
+      "id": "respond-with-invoices",
+      "name": "Respond With Invoices",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1420,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Gmail Discover": {
+      "main": [
+        [
+          {
+            "node": "Parse Discover Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Discover Body": {
+      "main": [
+        [
+          {
+            "node": "Search Gmail Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Gmail Messages": {
+      "main": [
+        [
+          {
+            "node": "Expand Message IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Message IDs": {
+      "main": [
+        [
+          {
+            "node": "Fetch Message Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Message Metadata": {
+      "main": [
+        [
+          {
+            "node": "Parse Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Attachments": {
+      "main": [
+        [
+          {
+            "node": "Respond With Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

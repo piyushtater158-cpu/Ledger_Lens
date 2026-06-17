@@ -1,6 +1,6 @@
 # LedgerLens — Backend
 
-Local source of truth for the two n8n workflows that power LedgerLens.
+Local source of truth for the n8n workflows that power LedgerLens.
 
 ## Contents
 
@@ -9,8 +9,10 @@ backend/
 ├── workflows/          ← Cloud JSON exports (re-importable into n8n)
 ├── src/
 │   ├── nodes/          ← One .js file per Code node (jsCode verbatim + header docs)
-│   ├── workflow-a-extraction.ts   ← n8n SDK source for Workflow A
-│   └── workflow-b-extract-row.ts  ← n8n SDK source for Workflow B
+│   ├── workflow-a-extraction.ts      ← n8n SDK source for Workflow A
+│   ├── workflow-b-extract-row.ts     ← n8n SDK source for Workflow B
+│   ├── workflow-c-gmail-discover.ts  ← n8n SDK source for Workflow C
+│   └── workflow-d-gmail-extract.ts   ← n8n SDK source for Workflow D
 ├── prompts/
 │   └── gemini-extraction.txt  ← Extraction prompt text (used by OpenRouter analyze nodes)
 └── config/
@@ -19,24 +21,26 @@ backend/
 
 ## Workflows
 
-| | Workflow A | Workflow B |
-|---|---|---|
-| **Name** | Invoice Payee Extraction | Invoice Extract Row |
-| **ID** | `vqSkkv9egxmIVpdv` | `LmdFhorOYBoJgXGl` |
-| **Endpoint** | `POST /webhook/extract` | `POST /webhook/extract-row` |
-| **Input** | `multipart/form-data`: `file` (xlsx) + `googleAccessToken` | `{ driveLink, googleAccessToken }` |
-| **Output** | Filled xlsx binary | `{ payee, accountNumber, ifsc, confidence, status }` |
-| **Auth** | `X-Admin-Token` header (value = `N8N_ADMIN_TOKEN` env var) | Same |
+| Workflow | ID | Endpoint | Input | Output |
+|---|---|---|---|---|
+| Workflow A — Invoice Payee Extraction | `vqSkkv9egxmIVpdv` | `POST /webhook/extract` | `multipart/form-data`: `file` + `googleAccessToken` | Filled xlsx binary |
+| Workflow B — Invoice Extract Row | `LmdFhorOYBoJgXGl` | `POST /webhook/extract-row` | `{ driveLink, googleAccessToken }` | `{ payee, accountNumber, ifsc, confidence, status }` |
+| Workflow C — Gmail Invoice Discovery | `DKeKAKn620xgkpQZ` | `POST /webhook/gmail-discover` | `{ googleAccessToken, query?, after, before, maxMessages? }` | `{ invoices[], truncated, scanned }` |
+| Workflow D — Gmail Attachment Extract | `njpNl9MZDkFvu7eF` | `POST /webhook/gmail-extract` | `{ googleAccessToken, messageId, attachmentId, mimeType, filename }` | `{ payee, accountNumber, ifsc, amount, confidence, status }` |
 
 ## Import / restore a workflow
 
 1. Open n8n UI at `https://n8n.piyushtater.com/`
 2. Go to **Workflows → Import from file**
-3. Select `backend/workflows/invoice-extraction.workflow.json` or `invoice-extract-row.workflow.json`
+3. Select one of:
+   - `backend/workflows/invoice-extraction.workflow.json`
+   - `backend/workflows/invoice-extract-row.workflow.json`
+   - `backend/workflows/gmail-discover.workflow.json`
+   - `backend/workflows/gmail-extract.workflow.json`
 4. After import, go to the workflow's **Credentials** section and re-assign:
    - Webhook node → **Admin Token** credential (`REIlq9U7MYnIUAey`)
-   - OpenRouter Analyze nodes → **OpenRouter API** credential (`openRouterApi`)
-   - HTTP Request nodes → **no credential** (they use the forwarded user Bearer token)
+   - OpenRouter HTTP nodes (Workflow D) → **OpenRouter API** credential (`openRouterApi`)
+   - Gmail/Drive HTTP Request nodes → **no credential** (forwarded user Bearer token)
 5. **Activate** the workflow via the toggle in the top-right corner. Until activated, only
    `/webhook-test/*` paths respond.
 

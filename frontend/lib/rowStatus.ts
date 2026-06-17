@@ -4,6 +4,7 @@ import type { RowStatus } from './types';
 export function normalizeRowStatus(raw: string | undefined | null): RowStatus {
   const s = String(raw ?? '').trim().toLowerCase();
   if (!s || s === 'done') return 'done';
+  if (s.startsWith('not_invoice')) return 'skipped';
   if (s.startsWith('error')) return 'error';
   if (s.startsWith('unsupported') || s === 'no drive link') return 'unsupported';
   if (s === 'pending' || s === 'processing') return s as RowStatus;

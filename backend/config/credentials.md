@@ -27,13 +27,15 @@ The analyze Code nodes build the OpenRouter vision payload (`prepareOpenRouterPa
 |---|---|---|
 | Invoice Payee Extraction (Workflow A) | `vqSkkv9egxmIVpdv` | `POST /webhook/extract` |
 | Invoice Extract Row (Workflow B) | `LmdFhorOYBoJgXGl` | `POST /webhook/extract-row` |
+| Gmail Invoice Discovery (Workflow C) | `DKeKAKn620xgkpQZ` | `POST /webhook/gmail-discover` |
+| Gmail Attachment Extract (Workflow D) | `njpNl9MZDkFvu7eF` | `POST /webhook/gmail-extract` |
 
 ## Model
 
 | Setting | Value |
 |---|---|
 | Provider | OpenRouter (OpenAI-compatible API) |
-| Model | `nvidia/nemotron-nano-12b-v2-vl:free` |
+| Model | `google/gemini-2.5-flash` |
 | Endpoint | `https://openrouter.ai/api/v1/chat/completions` |
 
 ## Secret locations (not here)
@@ -55,3 +57,8 @@ in n8n.
 
 Both workflows must be **manually activated** in the n8n UI (toggle the Active switch) before
 they will respond to production webhook calls at `/webhook/*`. Test calls use `/webhook-test/*`.
+
+For V2 workflows C and D, use the same credentials model:
+- Webhook nodes: `httpHeaderAuth` credential `REIlq9U7MYnIUAey` (Admin Token)
+- OpenRouter HTTP nodes (Workflow D): `openRouterApi` credential `bDCaYQ5pU52IShxl`
+- Gmail HTTP Request nodes: no stored credential; forward `Authorization: Bearer {{token}}`

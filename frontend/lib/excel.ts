@@ -81,6 +81,30 @@ export async function buildDownloadBlob(
   });
 }
 
+export async function buildGmailDownloadBlob(rows: InvoiceRow[]): Promise<Blob> {
+  const XLSX = await import('xlsx');
+  const sheetRows = rows.map((r) => ({
+    'Sender': r.sender ?? '',
+    'Email Date': r.emailDate ? new Date(r.emailDate).toLocaleDateString() : '',
+    'Subject': r.subject ?? '',
+    'Attachment': r.attachmentName ?? '',
+    'Payee': r.payee,
+    'Account No': r.acct,
+    'IFSC': r.ifsc,
+    'Amount': r.amount,
+    'Status': r.status,
+    'Confidence': r.confidence !== undefined ? Number(r.confidence).toFixed(2) : '',
+  }));
+  const headers = ['Sender', 'Email Date', 'Subject', 'Attachment', 'Payee', 'Account No', 'IFSC', 'Amount', 'Status', 'Confidence'];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(sheetRows, { header: headers });
+  XLSX.utils.book_append_sheet(wb, ws, 'Gmail Invoices');
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  return new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+
 export async function parseUploadedFile(file: File): Promise<{
   headers: string[];
   rawData: Record<string, unknown>[];

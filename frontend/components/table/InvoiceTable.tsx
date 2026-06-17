@@ -13,16 +13,20 @@ interface Props {
   onRerun: (rowId: string) => void;
 }
 
-const HEADERS = ['#', 'File', 'Payee Name', 'Account No', 'IFSC', 'Amount', 'Status', 'Actions'];
+const SHEET_HEADERS = ['#', 'File', 'Payee Name', 'Account No', 'IFSC', 'Amount', 'Status', 'Actions'];
+const GMAIL_HEADERS = ['#', 'Sender', 'Date', 'Subject', 'Attachment', 'Payee Name', 'Account No', 'IFSC', 'Amount', 'Status', 'Actions'];
 
 export default function InvoiceTable({ rows, editing, editValue, onEditValue, onStartEdit, onCommitEdit, onCancelEdit, onRerun }: Props) {
+  const isGmail = rows.some((r) => r.source === 'gmail');
+  const headers = isGmail ? GMAIL_HEADERS : SHEET_HEADERS;
+
   return (
     <div style={{ background: C.white, border: `1px solid ${C.line}`, borderRadius: 12, overflow: 'hidden' }}>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: C.greySoft }}>
-              {HEADERS.map((h) => (
+              {headers.map((h) => (
                 <th key={h} style={{
                   padding: '11px 14px',
                   textAlign: h === 'Amount' || h === 'Actions' ? 'right' : 'left',
@@ -43,6 +47,7 @@ export default function InvoiceTable({ rows, editing, editValue, onEditValue, on
                 key={row.id}
                 row={row}
                 index={i}
+                isGmailMode={isGmail}
                 editing={editing}
                 editValue={editValue}
                 onEditValue={onEditValue}

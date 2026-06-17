@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { C } from '@/lib/colors';
 import type { Screen } from '@/lib/types';
+import type { GmailDiscoverParams } from '@/lib/api';
 import ToastStack from '@/components/ToastStack';
 import { useToasts } from '@/hooks/useToasts';
 import { useFileUpload } from '@/hooks/useFileUpload';
@@ -13,6 +14,7 @@ import TopNav from '@/components/dashboard/TopNav';
 import UploadScreen from '@/screens/UploadScreen';
 import MappingScreen from '@/screens/MappingScreen';
 import DashboardScreen from '@/screens/DashboardScreen';
+import GmailScreen from '@/screens/GmailScreen';
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
@@ -55,6 +57,11 @@ export default function DashboardPage() {
     setScreen('upload');
   };
 
+  const onGmailScan = async (params: GmailDiscoverParams) => {
+    setScreen('dashboard');
+    await extraction.runGmail(params);
+  };
+
   const userName = session?.user?.name ?? '';
   const userInitials = userName.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 
@@ -72,7 +79,10 @@ export default function DashboardPage() {
 
       <main style={{ flex: 1, padding: '40px 32px', maxWidth: 1100, margin: '0 auto', width: '100%' }}>
         {screen === 'upload' && (
-          <UploadScreen onFile={onFile} loading={parsingFile} />
+          <UploadScreen onFile={onFile} loading={parsingFile} onGmailMode={() => setScreen('gmail')} />
+        )}
+        {screen === 'gmail' && (
+          <GmailScreen onScan={onGmailScan} loading={extraction.running} onBack={() => setScreen('upload')} />
         )}
         {screen === 'mapping' && uploadedFile && (
           <MappingScreen

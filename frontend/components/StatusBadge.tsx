@@ -8,6 +8,7 @@ const MAP: Record<RowStatus, { bg: string; line: string; col: string; label: str
   done: { bg: C.greenSoft, line: C.greenLine, col: C.greenInk, label: 'Done' },
   error: { bg: C.redSoft, line: C.redLine, col: C.redInk, label: 'Error' },
   unsupported: { bg: C.amberSoft, line: C.amberLine, col: C.amberInk, label: 'Unsupported' },
+  skipped: { bg: C.greySoft, line: '#e0e5ec', col: C.grey, label: 'Skipped' },
 };
 
 export default function StatusBadge({
@@ -63,6 +64,8 @@ export default function StatusBadge({
           ? (error ?? '')
           : normalized === 'unsupported'
           ? 'File type not supported (e.g. .docx). Mark as done manually.'
+          : normalized === 'skipped'
+          ? (error ?? 'Not a payment invoice — skipped')
           : ''
       }
       style={{
