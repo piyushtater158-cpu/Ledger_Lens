@@ -16,12 +16,12 @@ function formatError(err) {
 }
 
 function getPrepareError() {
-  for (const name of ['OpenRouter Analyze Image', 'OpenRouter Analyze Document']) {
-    try {
-      const prep = $(name).first()?.json;
-      if (prep?.error) return formatError(prep.error);
-    } catch (_) {}
-  }
+  const analyzeNode =
+    row._fileClass === 'image' ? 'OpenRouter Analyze Image' : 'OpenRouter Analyze Document';
+  try {
+    const prep = $(analyzeNode).item?.json;
+    if (prep?.error) return formatError(prep.error);
+  } catch (_) {}
   return '';
 }
 
@@ -72,6 +72,18 @@ function normalizeAmount(val) {
   const s = String(val ?? '').trim();
   if (!s) return '';
   return s.replace(/[^\d.]/g, '');
+}
+
+const PROMPT_LEAKED_IFSC = 'HDFC0001234';
+const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
+function detectHallucination(payee, acct, ifsc, confidence) {
+  if (ifsc === PROMPT_LEAKED_IFSC) return 'model returned prompt example IFSC';
+  if (/^123456789012$/.test(acct)) return 'placeholder account number';
+  if (acct.length >= 10 && /^(\d)\1+$/.test(acct)) return 'repeated-digit account number';
+  if (ifsc && !IFSC_REGEX.test(ifsc)) return 'invalid IFSC format';
+  if (confidence < 0.5 && payee && acct) return 'low confidence with filled fields';
+  return '';
 }
 
 function parseExtractionPayload(data) {
@@ -126,6 +138,20 @@ try {
     p.amount ?? p.total ?? p.total_amount ?? p.invoice_amount ?? p.invoice_total
   );
   const confidence = typeof p.confidence === 'number' ? p.confidence : 0;
+
+  const hallucinationReason = detectHallucination(payee, accountNumber, ifsc, confidence);
+  if (hallucinationReason) {
+    return {
+      json: {
+        payee: '',
+        accountNumber: '',
+        ifsc: '',
+        amount: '',
+        confidence,
+        status: 'Error: model returned unreliable extraction - ' + hallucinationReason,
+      },
+    };
+  }
 
   if (!payee && !accountNumber && !ifsc && !amount) {
     return {

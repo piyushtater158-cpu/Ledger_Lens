@@ -36,8 +36,8 @@ if (mime.startsWith('image/')) {
   fileClass = 'error';
   status = 'Error: Drive file not accessible (check permissions)';
 } else {
-  // PDF and other binary formats — download directly. DOC/DOCX are downloaded then
-  // converted to PDF in Restore Row After Download before Gemini Analyze Document.
+  // PDF and other binary formats — download directly. DOC/DOCX are converted to PDF
+  // in Restore Row After Download via Google Drive before OpenRouter vision extraction.
   fileClass = 'document';
 }
 

@@ -5,7 +5,7 @@ You are reading an invoice document. Extract ONLY these four fields and return v
 Rules:
 - payee: the account payee or beneficiary name exactly as printed
 - account_number: digits only, no spaces or dashes
-- ifsc: exactly 11 characters, uppercase (e.g. HDFC0001234)
+- ifsc: exactly 11 characters, uppercase, copied from the document (format: 4 letters + 0 + 6 alphanumeric)
 - amount: invoice total or grand total as printed (digits and decimal point only, no currency symbols or commas). Always include this field when visible on the invoice.
 - confidence: 0.0 to 1.0
 - If a field is missing or unreadable, use "" and lower confidence

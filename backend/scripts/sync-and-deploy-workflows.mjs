@@ -130,7 +130,7 @@ function createOpenRouterHttpNode(name, analyzeNode, openRouterCredential) {
       sendBody: true,
       specifyBody: 'json',
       jsonBody: '={{ $json._openRouterBody ? JSON.stringify($json._openRouterBody) : JSON.stringify({ error: $json.error || "Missing OpenRouter request body" }) }}',
-      options: {},
+      options: { timeout: 120000 },
     },
     onError: 'continueRegularOutput',
     retryOnFail: true,
