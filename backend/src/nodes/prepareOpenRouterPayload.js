@@ -26,9 +26,6 @@ Rules:
 const row = $('Restore Row After Download').item.json;
 
 if (row._downloadFailed) {
-  // #region agent log
-  fetch('http://127.0.0.1:7278/ingest/2c22404a-379e-4acd-837f-babf35680249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eec9f5'},body:JSON.stringify({sessionId:'eec9f5',location:'prepareOpenRouterPayload.js:skip',message:'skip openrouter download failed',data:{idx:row._idx,status:row._status},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
   return { json: { error: row._status || 'Invoice file unavailable', _skipOpenRouter: true } };
 }
 
@@ -106,10 +103,6 @@ const _openRouterBody = {
     },
   ],
 };
-
-// #region agent log
-fetch('http://127.0.0.1:7278/ingest/2c22404a-379e-4acd-837f-babf35680249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eec9f5'},body:JSON.stringify({sessionId:'eec9f5',location:'prepareOpenRouterPayload.js:vision',message:'openrouter body prepared',data:{idx:row._idx,mime,mode:'vision',base64Len:base64.length},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-// #endregion
 
 return {
   json: {

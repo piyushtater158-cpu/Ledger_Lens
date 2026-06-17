@@ -69,10 +69,6 @@ async function convertOfficeDocToPdf(fileId, token, fileName) {
 const row = $('Classify MimeType').item.json;
 const binData = $binary?.invoiceFile || null;
 
-// #region agent log
-fetch('http://127.0.0.1:7278/ingest/2c22404a-379e-4acd-837f-babf35680249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eec9f5'},body:JSON.stringify({sessionId:'eec9f5',location:'restoreRowAfterDownload.js:entry',message:'restore entry',data:{idx:row._idx,mime:row._mimeType,fileName:row._fileName,hasBinary:!!binData,isOffice:isOfficeDocMime(row._mimeType||'',row._fileName||'')},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-// #endregion
-
 if (!binData) {
   return {
     json: {
@@ -103,9 +99,6 @@ if (!fileId || !token) {
 
 try {
   const pdfBinary = await convertOfficeDocToPdf.call(this, fileId, token, fileName);
-  // #region agent log
-  fetch('http://127.0.0.1:7278/ingest/2c22404a-379e-4acd-837f-babf35680249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eec9f5'},body:JSON.stringify({sessionId:'eec9f5',location:'restoreRowAfterDownload.js:converted',message:'DOCX converted to PDF',data:{idx:row._idx,fileId,converted:true},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
   return {
     json: {
       ...row,

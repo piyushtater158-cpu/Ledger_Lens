@@ -104,9 +104,6 @@ try {
   const _parseSource = extractRawModelText($json) ? 'model-text' : 'top-level';
 
   const hallucinationReason = detectHallucination(payee, acct, ifsc, confidence);
-  // #region agent log
-  fetch('http://127.0.0.1:7278/ingest/2c22404a-379e-4acd-837f-babf35680249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eec9f5'},body:JSON.stringify({sessionId:'eec9f5',location:'parseGeminiExtraction.js:parse',message:'extraction parsed',data:{idx:row._idx,payee,acctLen:acct.length,ifsc,amount,confidence,hallucinationReason,parseSource:_parseSource},timestamp:Date.now(),hypothesisId:'H3-H4'})}).catch(()=>{});
-  // #endregion
 
   if (hallucinationReason) {
     return {
