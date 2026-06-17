@@ -3,8 +3,9 @@
  * Workflows: A + B
  * Mode: runOnceForEachItem
  *
- * Builds the OpenRouter vision request body. The following HTTP Request node
- * performs the authenticated call using the openRouterApi credential.
+ * Builds the OpenRouter request body. PDFs/images use vision. DOC/DOCX are converted to
+ * PDF in Restore Row After Download; _geminiMimeType routes them through the PDF vision path.
+ * Legacy _officeDocText text mode is still supported if present on the row.
  */
 
 const OPENROUTER_MODEL = 'nvidia/nemotron-nano-12b-v2-vl:free';
@@ -14,12 +15,47 @@ const EXTRACTION_PROMPT = `You are reading an invoice document. Extract ONLY the
 {"payee":"string","account_number":"string","ifsc":"string","amount":"string","confidence":0.0}
 
 Rules:
-- payee: the account payee or beneficiary name exactly as printed
-- account_number: digits only, no spaces or dashes
-- ifsc: exactly 11 characters, uppercase (e.g. HDFC0001234)
-- amount: invoice total or grand total as printed (digits and decimal point only, no currency symbols or commas). Always include this field when visible on the invoice.
-- confidence: 0.0 to 1.0
-- If a field is missing or unreadable, use "" and lower confidence`;
+- payee: the account payee or beneficiary name exactly as printed on THIS invoice
+- account_number: digits only, no spaces or dashes — copy exactly from the document
+- ifsc: exactly 11 characters, uppercase, copied from the document (format: 4 letters + 0 + 6 alphanumeric)
+- amount: invoice total or grand total as printed (digits and decimal point only, no currency symbols or commas)
+- confidence: 0.0 to 1.0 — use 0.0 if you cannot read the document clearly
+- If a field is missing or unreadable, use "" and set confidence below 0.5
+- NEVER invent, guess, or reuse placeholder values — only copy text visible on the invoice`;
+
+const row = $('Restore Row After Download').item.json;
+
+if (row._downloadFailed) {
+  // #region agent log
+  fetch('http://127.0.0.1:7278/ingest/2c22404a-379e-4acd-837f-babf35680249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eec9f5'},body:JSON.stringify({sessionId:'eec9f5',location:'prepareOpenRouterPayload.js:skip',message:'skip openrouter download failed',data:{idx:row._idx,status:row._status},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+  return { json: { error: row._status || 'Invoice file unavailable', _skipOpenRouter: true } };
+}
+
+if (row._officeDocText) {
+  const _openRouterBody = {
+    model: OPENROUTER_MODEL,
+    max_tokens: 1024,
+    messages: [
+      {
+        role: 'user',
+        content:
+          EXTRACTION_PROMPT +
+          '\n\n--- Invoice document text ---\n' +
+          row._officeDocText,
+      },
+    ],
+  };
+  return {
+    json: {
+      _openRouterBody,
+      _openRouterModel: OPENROUTER_MODEL,
+      _prepareMime: 'text/plain',
+      _prepareIdx: row._idx,
+      _prepareMode: 'text',
+    },
+  };
+}
 
 const bin = $binary?.invoiceFile || null;
 if (!bin) {
@@ -29,18 +65,10 @@ if (!bin) {
 const buffer = await this.helpers.getBinaryDataBuffer(0, 'invoiceFile');
 const base64 = Buffer.from(buffer).toString('base64');
 
-let mime = $('Restore Row After Download').item.json._geminiMimeType
-  || $('Restore Row After Download').item.json._mimeType
-  || bin.mimeType
-  || 'application/octet-stream';
+let mime = row._geminiMimeType || row._mimeType || bin.mimeType || 'application/octet-stream';
 
-if (mime === 'application/octet-stream' && $('Restore Row After Download').item.json._fileClass === 'image') {
+if (mime === 'application/octet-stream' && row._fileClass === 'image') {
   mime = 'image/jpeg';
-}
-if (mime !== 'application/pdf' && !mime.startsWith('image/')) {
-  if ($('Restore Row After Download').item.json._fileClass === 'document') {
-    mime = 'application/pdf';
-  }
 }
 
 const dataUrl = `data:${mime};base64,${base64}`;
@@ -78,9 +106,17 @@ const _openRouterBody = {
     },
   ],
 };
+
+// #region agent log
+fetch('http://127.0.0.1:7278/ingest/2c22404a-379e-4acd-837f-babf35680249',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'eec9f5'},body:JSON.stringify({sessionId:'eec9f5',location:'prepareOpenRouterPayload.js:vision',message:'openrouter body prepared',data:{idx:row._idx,mime,mode:'vision',base64Len:base64.length},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+// #endregion
+
 return {
   json: {
     _openRouterBody,
     _openRouterModel: OPENROUTER_MODEL,
+    _prepareMime: mime,
+    _prepareIdx: row._idx,
+    _prepareMode: 'vision',
   },
 };
