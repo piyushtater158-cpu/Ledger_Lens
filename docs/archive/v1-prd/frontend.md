@@ -1,3 +1,7 @@
+> **Archived — v1 spec.** Written before the Gmail-scan flow existed. See
+> [docs/prd/v2-gmail-frontend.md](../../prd/v2-gmail-frontend.md) for the Gmail addendum
+> and [frontend/README.md](../../../frontend/README.md) for the current app structure.
+
 # Frontend PRD: Invoice Extractor Dashboard
 
 **Stack:** Next.js (App Router) · Tailwind CSS · NextAuth.js · Vercel  

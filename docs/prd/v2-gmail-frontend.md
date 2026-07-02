@@ -1,3 +1,9 @@
+> **Status: implemented and live.** The Gmail scan flow, the auth scope change below, and
+> workflows C/D are already shipped and active in n8n. This doc is kept as the design
+> record; for current behavior see the root [README.md](../../README.md),
+> [backend/README.md](../../backend/README.md), and
+> [backend/config/v2-gmail-contracts.md](../../backend/config/v2-gmail-contracts.md).
+
 # PRD V2 — Frontend: Gmail Invoice Extraction
 
 LedgerLens V2 adds a second entry mode — "Scan Gmail" — to the existing dashboard. Users

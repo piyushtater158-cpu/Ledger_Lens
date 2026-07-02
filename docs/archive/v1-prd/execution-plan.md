@@ -1,3 +1,7 @@
+> **Archived — historical build log.** Step-by-step record of how v1 was originally built.
+> Not maintained; the system has since moved past several of these steps (OpenRouter instead
+> of direct Gemini, Gmail workflows added). Kept for reference only.
+
 # Execution Plan: Invoice Payee Extractor
 
 **Reference doc for how to approach and solve the problem.**  

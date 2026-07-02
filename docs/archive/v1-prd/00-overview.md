@@ -1,3 +1,8 @@
+> **Archived — v1 spec.** Written before the switch from direct Gemini calls to OpenRouter
+> and before the Gmail-scan workflows (C/D) existed. Kept for historical context only.
+> For the current system, start at the root [README.md](../../../README.md) and
+> [CLAUDE.md](../../../CLAUDE.md).
+
 # PRD Overview: Invoice Payee Extractor
 
 **Version:** 1.0  

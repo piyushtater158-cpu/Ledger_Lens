@@ -15,8 +15,10 @@ backend/
 │   └── workflow-d-gmail-extract.ts   ← n8n SDK source for Workflow D
 ├── prompts/
 │   └── gemini-extraction.txt  ← Extraction prompt text (used by OpenRouter analyze nodes)
+├── scripts/             ← Deploy/sync/debug scripts (see below)
 └── config/
-    └── credentials.md  ← Credential + workflow IDs (no secret values)
+    ├── credentials.md          ← Credential + workflow IDs (no secret values)
+    └── v2-gmail-contracts.md   ← Request/response contracts for Workflows C/D
 ```
 
 ## Workflows
@@ -68,3 +70,21 @@ is ever persisted in n8n.
 See `config/credentials.md` for IDs. Actual secret values live in:
 - `frontend/.env.local` — `N8N_ADMIN_TOKEN`, `N8N_BASE_URL`, Google OAuth, `NEXTAUTH_SECRET`
 - Root `.env` — `N8N_API_KEY` (for n8n MCP), `N8N_ADMIN_TOKEN`, `N8N_BASE_URL`
+
+## Scripts
+
+| Script | Purpose |
+|---|---|
+| `sync-and-deploy-workflows.mjs` | Rebuilds `workflows/*.workflow.json` from `src/nodes/*.js` and pushes to live n8n. `--local-only` regenerates the JSON without deploying. See flags in the file header. |
+| `sync-gmail-workflows.mjs` | Same idea, scoped to Workflows C/D. |
+| `fetch-execution.mjs`, `analyze-execution.mjs`, `analyze-execution-rows.mjs` | Pull and inspect a past n8n execution by ID — useful for debugging a failed row. |
+| `verify-deployed-model.mjs`, `verify-workflow-a-openrouter.mjs` | Confirm the live workflow is actually calling the expected OpenRouter model. |
+| `discover-openrouter-credential.mjs` | Look up the OpenRouter credential ID/name registered in n8n. |
+
+Before trusting a `src/nodes/*.js` file as "what's live," check `git diff` — Code node sources are sometimes edited locally ahead of being synced/deployed. The published truth is whatever `sync-and-deploy-workflows.mjs` last pushed to n8n; `workflows/*.workflow.json` in this repo should match that.
+
+## See also
+
+- [Root README](../README.md) — product overview, both extraction paths, deployment
+- [CLAUDE.md](../CLAUDE.md) — architecture, gotchas, production checklist
+- [frontend/README.md](../frontend/README.md) — how the frontend calls these workflows

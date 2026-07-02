@@ -1,3 +1,8 @@
+> **Archived — v1 spec.** Describes the original 2-workflow, direct-Gemini-credential design.
+> The live system now routes through OpenRouter (`google/gemini-2.5-flash`) and has grown to
+> four workflows (A/B/C/D). See [backend/README.md](../../../backend/README.md) and
+> [backend/config/credentials.md](../../../backend/config/credentials.md) for current state.
+
 # Backend PRD: n8n Workflows
 
 **n8n instance:** `https://n8n.piyushtater.com`  
